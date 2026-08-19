@@ -1,184 +1,156 @@
 # threshold
 
-把任意一张图重写成由 `0` 和 `1` 组成的画面 —— 拖进浏览器就出结果，能存成 PNG 静帧和 GIF 动图。
+Rewrite any image as a picture made of `0`s and `1`s — drop it in a browser tab and it's done, exportable as a crisp PNG or a looping GIF.
 
-**[在线试玩 → threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app)**
+**[Try it live → threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app)**
 
-名字取自两处同一个词。图像二值化里，把连续灰阶劈成非黑即白的那一步操作叫阈值（thresholding）；
-而底图是《奥德赛》第二十一卷 —— 大厅门闩落下，奥德修斯站在门槛上张弓，杀戮尚未开始。
-一边是技术动作，一边是叙事时刻，这个项目正好长在两者重合的位置。
+*[中文说明 →](README.zh.md)*
 
-## 网页版：拖一张图进去
+The name is one word doing two jobs. In image binarization, the step that carves continuous tone into pure black-or-white is called *thresholding*. The source photo is Book 21 of the *Odyssey* — the great hall's doors barred, Odysseus standing on the threshold with the bow drawn, the killing not yet begun. One meaning is a technical operation, the other a narrative moment; the project sits exactly where the two overlap.
 
-`web/app.html` 是一个不依赖任何库、不需要服务器的单文件应用。双击打开，
-把任意图片拖进去，整条管线在你自己的浏览器里跑完，图片不上传到任何地方。
+## Web app: drop an image in
 
-- **上传** — 拖拽、点选、⌘V 粘贴都行
-- **中英双语** — 界面上每个字都从一份词典取，默认看浏览器语言
-- **亮 / 暗两套配色** — 默认跟随系统，手动切换后记住选择
-- **调参** — 密度（60–320 列）和反差实时重建
-- **五种画面** — 静态（默认）/ 微光 / 数据雨 / 解码 / 扫描，速度可调
-- **画面是一片水** — 指针划过就荡开涟漪，字符顺着水面折开，水静了又回到原样
-- **导出 PNG** — 3200px 级高清静帧，背景垫一层模糊原图（woven 质感）
-- **导出 GIF** — 40 帧循环动图，量化、LZW、封装全是手写的，无外部依赖
+`web/app.html` is a single file with no dependencies and no server. Double-click it, drop any image in, and the whole pipeline runs in your own browser — nothing is ever uploaded anywhere.
 
-Python 那套管线里的 CLAHE、百分位拉伸、秩均衡、filmic 曝光补偿和
-Floyd–Steinberg 抖动，在 `web/app.html` 里都有一份等价的 JS 实现。
+- **Upload** — drag-and-drop, click to pick a file, or paste with ⌘V
+- **Bilingual** — every string on the page comes from one dictionary; defaults to your browser's language
+- **Light / dark themes** — follows the system by default, remembers a manual switch
+- **Live tuning** — density (60–320 columns) and contrast rebuild in real time
+- **Five views** — still (default) / shimmer / rain / decode / scan, speed adjustable
+- **The picture is a pool of water** — run your pointer across it and ripples spread, characters refract around them, and the water settles back to the original once it stills
+- **Export PNG** — a crisp still up to 3200px, backed by a blurred copy of the source (a "woven" texture)
+- **Export GIF** — a 40-frame loop; quantization, LZW, and the container format are all hand-written, no external library
 
-## 命令行
+The original Python pipeline's CLAHE, percentile stretch, rank equalization, filmic exposure compensation, and Floyd–Steinberg dithering all have an equivalent JS implementation inside `web/app.html`.
+
+## Command line
 
 ```bash
 pip install -r requirements.txt
-make web                  # 生成预埋了 input/source.png 的 out/live.html
-make grid                 # 只导网格
+make web                  # builds out/live.html with input/source.png baked in
+make grid                 # export just the tone grid
 ```
 
-`make web` 产出的 `out/live.html` 就是上面那个应用，外加一张烘死的默认图 ——
-打开即见奥德修斯，也仍然可以拖别的图进去。
+`make web` produces `out/live.html` — the same app as above, plus a baked-in default image. Open it and Odysseus is already there; you can still drop another image in.
 
-## 管线
+## Pipeline
 
 ```
-任意图片 ──► web/app.html ──┬──► PNG 高清静帧
-  （浏览器内，无服务器）      └──► GIF 循环动图
+any image ──► web/app.html ──┬──► PNG still
+  (in-browser, no server)     └──► GIF loop
 
 source.png ─► export_grid.py ─► grid.json ─► build_web.py ─► out/live.html
-                200×95 网格                    （把网格预埋进 app.html）
-                每格 4 字节：R G B 基准字符
+                200×95 grid                    (bakes the grid into app.html)
+                4 bytes per cell: R G B base-character
 ```
 
-## 三个关键处理
+## Three things that had to be solved
 
-**1. 暗图必须先做局部提亮。** 原片中位亮度只在 90 上下、大量像素接近纯黑，直接转换会把脸和弓弦整个吃掉。用 CLAHE 在 LAB 的 L 通道上做，色相不受影响。
+**1. Dark photos need local exposure lift before anything else.** The source sits around median brightness 90, with huge swaths near pure black — converting it directly erases the face and the bowstring entirely. CLAHE runs on the L channel in LAB space, so hue is untouched.
 
-**2. 笔画覆盖率决定曝光。** `0` 和 `1` 的笔画只占格子约 31% 面积，不补偿的话整体亮度会掉到原图的三分之一，缩小看就是一片灰。做法是实测覆盖率反推曝光倍数，再套 filmic 曲线压高光：
+**2. Ink coverage decides the exposure math.** `0` and `1` only fill about 31% of their cell — without compensation the whole image drops to roughly a third of the source's brightness and reads as flat gray at a distance. The fix measures actual glyph coverage, inverts it into an exposure multiplier, then runs a filmic curve to keep highlights from clipping:
 
 ```python
 ink   = measured_coverage(charset)      # ≈ 0.31
 target = filmic(tone * (0.66 / ink) * 0.85) * 255
 ```
 
-**3. 只有两个字符时，灰阶全靠抖动。** Floyd–Steinberg 把误差扩散到邻格，所以网格必须够密（≥ 400 列静态 / 200 列动画），否则中间调会断层。
+**3. With only two glyphs, every gray level comes from dithering.** Floyd–Steinberg spreads quantization error to neighboring cells, so the grid has to be dense enough (≥ 400 columns for stills, 200 for animation) or midtones band visibly.
 
-## 动画为什么不会散
+## Why the animation never falls apart
 
-亮度分布烘死在 `grid.json` 里，永远不动；动的只是每格显示 `0` 还是 `1`。所以字符怎么翻转流淌，图像都立在那儿。
+The brightness map is baked into `grid.json` and never changes; the only thing that moves is whether each cell shows a `0` or a `1`. However the characters flip and flow, the image stays standing.
 
-默认是**静态** —— 定格在解算完成的那一帧，和下载的 PNG 是同一个状态（字符停在抖动结果上、
-亮度不带动画增益）。这一帧只画一次就不再重绘，19,000 个字符不必每秒重刷 60 遍；
-也因为没有东西在动，速度、暂停和 GIF 导出在静态下是灰的。
+The default view is **still** — frozen on the dithered result, the same state a downloaded PNG captures (characters settled, no animation-driven brightness boost). That frame is drawn once and never redrawn — 19,000 characters don't need repainting 60 times a second for no reason. Because nothing is moving, speed, pause, and GIF export are all grayed out in this mode.
 
-另外四种是动效：
+The other four are motion:
 
-- **微光** — 翻转概率按 `4L(1-L)` 加权，中间调最活跃，暗部沉静
-- **数据雨** — 每列独立速度与拖尾长度，底图始终透出
-- **解码** — 解析顺序按亮度排序，**人先于场景到场**
-- **扫描** — 亮带纵向扫过，带内字符被搅乱并提亮
+- **Shimmer** — flip probability weighted by `4L(1-L)`, so midtones are the most restless and shadows stay quiet
+- **Rain** — each column has its own speed and trail length; the base image always shows through
+- **Decode** — resolve order is sorted by brightness, so **the figure arrives before the room does**
+- **Scan** — a bright band sweeps down the frame, scrambling and lifting whatever falls inside it
 
-## 文字水面
+## The text is a pool of water
 
-指针划过画面时，字符会像隔着水面看东西那样被折开。
+Run your pointer across the picture and the characters refract, the way anything looks bent when you view it through water.
 
-**这个交互一开始完全不可发现**——一片字符构成的画布，没有任何提示，没人会想到去划它。
-解法不是把"试试划一下"塞进底部那段背景说明里（那是阅读材料，大多数人划不到那么下面），
-而是在画布角落放一张会自己浮现的提示卡：装上作品才出现，摸过一次水就永久淡出、不再打扰。
-提示归提示、说明归说明——这是两件目的不同的事，不该挤在同一段文字里。
+**This interaction was completely undiscoverable at first** — a canvas made of characters gives no hint that it does anything, so nobody thought to touch it. The fix isn't burying "try dragging your pointer across it" inside the background-reading paragraph at the bottom of the page (most people never scroll that far). It's a small hint card that surfaces in the corner of the canvas once an image loads, and fades out for good the first time someone actually touches the water. A discovery hint and a background explanation are two different jobs and shouldn't be crammed into the same paragraph.
 
-底下是一张和字符网格同尺寸的高度场，跑经典的**二维波动方程**：每一格的下一帧由四邻均值和上一帧决定，
-再乘一个阻尼。指针经过就往水里丢能量，涟漪自己会扩散、相互干涉、撞到边缘弹回来。
-之所以不用弹簧，是因为弹簧各弹各的、互不耦合，只会让每个字符原地抖一下；
-**涟漪要能传出去，相邻格子就必须耦合**，这正是波动方程在做的事。
+Underneath, a height field the same size as the character grid runs a classic **2D wave equation**: each cell's next frame comes from the average of its four neighbors and its own previous frame, times a damping factor. The pointer drops energy into the water as it moves, and the ripple spreads, interferes with itself, and bounces off the edges on its own. A spring wouldn't do this — springs bounce independently with no coupling between them, which would just make each character twitch in place. **For a ripple to actually travel, neighboring cells have to be coupled**, and that's exactly what the wave equation gives you.
 
-高度场翻译成画面上的三件事：字符按高度的**梯度**横向偏移（折射）、波峰**提亮**、
-扰动大的地方 0 和 1 **翻面**（水搅浑了的意思）。
-丢下的能量按指针速度给：慢慢抚过是涟漪，甩过去是水花，按下去是石子。
+The height field turns into three things on screen: characters shift sideways along the height **gradient** (refraction), wave crests get **brighter**, and cells disturbed past a threshold **flip** between 0 and 1 (the water gets stirred up). Energy dropped in scales with pointer speed — a slow pass makes a ripple, a fast swipe makes a splash, and a click drops a stone.
 
-两个实现上的坑：
+Two implementation traps:
 
-- **静止判据必须看峰值，不能看总能量。** 涟漪铺开时总能量反而会涨（26 → 118），
-  但决定"还看不看得见"的是最高的那个波峰。用总能量判会让渲染循环白醒好几百帧。
-- **静态模式下每帧要从 base 重新起算。** 这样水静下去时画面精确回到原样 ——
-  实测 settle 之后 0 个格子还带偏移。摸过的图不会被弄脏。
+- **The rest condition has to watch peak amplitude, not total energy.** As a ripple spreads, total energy actually *increases* (26 → 118 in one measurement) — but what decides "is this still visible" is the tallest remaining peak. Using total energy as the stopping condition left the render loop awake for hundreds of wasted frames.
+- **Still mode has to re-derive from the base state every frame.** That's what lets the picture settle back to exactly its original state once the water calms — measured: 0 cells still carrying an offset after settling. An image someone touched never stays smudged.
 
-导出前会先把水抹平（`calmWater()`）：PNG 是定格静帧，GIF 录制时指针也不在画面上，
-残留的涟漪会被烤进产物里。偏好"减少动效"的系统设置会整个关掉水面。
+Water is flattened (`calmWater()`) before every export: a PNG is a frozen still, and during a GIF recording the pointer isn't over the canvas anyway — any leftover ripple would get baked into the output. The system "reduce motion" preference turns the whole pool off.
 
-### 关于这组参数
+### On tuning this
 
-中途按"覆盖面积大、余波长"的思路调过一版：峰值位移从 18px 压到 3.4px、影响面积从 2% 提到 25%、
-可见时长从 0.3s 拉到 3.9s。**纸面数字全面更好，但摸上去是错的** —— 变成一大片又广又慢的涌，
-而不是水花。已经退回原来这组。
+Partway through, I retuned it around the idea that "bigger coverage, longer decay" would feel more like water: peak displacement dropped from 18px to 3.4px, affected area went from 2% to 25%, visible duration stretched from 0.3s to 3.9s. **Every number on paper got better, and it felt wrong** — it turned into one big, slow, sluggish surge instead of a splash. Reverted to the original values.
 
-教训记在这儿：这类效果的好坏只有手能判断。覆盖面积、持续时长这些是我自己发明的指标，
-和"satisfying"并不相关。量化只该用来查真实的毛病（残留、空转、爆冲），不该用来定手感。
+The lesson worth keeping: only a hand can judge whether an effect like this feels right. Coverage area and duration were metrics I invented myself, and they had nothing to do with whether it actually felt satisfying. Quantify to catch real defects (leftover residue, idle spinning, blown-out amplitude) — never to define the feel.
 
-三个旋钮：**`DAMP` 余波长短 · `WARP` 位移强度 · `LIFT` 波峰的光**，都在 `web/app.html` 顶部。
+Three knobs, all at the top of `web/app.html`: **`DAMP`** how long the ripple lingers, **`WARP`** how strong the displacement is, **`LIFT`** how bright the crest gets.
 
-当前实测：峰值位移 18.4px、可见 0.5s、1.35s 归于平静、静止后 0 格残留，
-每帧代价 0.37ms（60fps 下占 2.2% 帧预算）。
+Current measurements: 18.4px peak displacement, 0.5s visible, settles in 1.35s, 0 cells left offset once still, 0.37ms per frame (2.2% of a 60fps frame budget).
 
-## logo
+## The logo
 
-mark 是**阶跃函数**：低位走一段、垂直跳一级、高位走一段。
+The mark is a **step function**: flat, a vertical jump, flat again.
 
-选它是因为它同时是这个项目名字的两头 —— 数学上它就是阈值的定义式（低于判定值输出 0，高于输出 1，
-中间没有过渡）；形状上它就是一道**门槛台阶**，也就是奥德修斯站着的那个地方。README 开头说这个项目
-"正好长在两者重合的位置"，mark 就该是那个重合本身。
+I chose it because it's both halves of the project's name at once — mathematically it's the definition of a threshold (output 0 below the cutoff, 1 above it, no transition in between); visually it's a **doorstep**, the exact spot Odysseus is standing on. The README opens by saying the project sits where those two meanings overlap; the mark had to *be* that overlap, not just illustrate it.
 
-两个画法上的决定：
+Two decisions in how it's drawn:
 
-- **跳变那一竖只有横线的一半粗。** 阶跃的跳变在数学上是瞬时的、宽度为零；顺带这也给了 mark
-  和衬线字标一致的粗细对比，两者笔调才统一。它也是整个 logo 里唯一上强调色的地方 —— 判定发生的那一瞬。
-- **mark 的高度就是字母的升部高（0.757em）**，低位压在基线上、高位齐着 t/h/l/d 的顶。
-  所以它不是"字旁边摆了个图标"，而是和字母咬死的一个几何体，换语言、换断点都不散。
+- **The jump is drawn at half the stroke weight of the flat segments.** A step's transition is instantaneous and zero-width in the math; this also happens to give the mark the same stroke contrast as the serif wordmark next to it, so the two read as one voice. It's also the only place in the whole logo carrying the accent color — the instant the threshold is crossed.
+- **The mark's height equals the type's ascender height (0.757em)**, with its low segment sitting on the baseline and its high segment level with the tops of t/h/l/d. So it isn't "an icon parked next to some letters" — it's one geometric object locked to the type, and it holds together across languages and breakpoints.
 
-同一个 mark 直接做了 favicon（内嵌 SVG，自带深浅色规则）。16px 下仍读得出阶跃。
+The same mark doubles as the favicon (inline SVG with its own light/dark rule). The step still reads at 16px.
 
-## 关于亮色模式
+## On light mode
 
-亮色不是把暗色反相，而是照"展览图录"重做的一套：暖纸白、暖墨黑，强调色仍是那束火光琥珀。
+Light mode isn't dark mode inverted — it's a separate palette built around the idea of an exhibition catalogue: warm paper white, warm ink black, the same torch-amber accent.
 
-**但画面本身在两种模式下都是深色。** 这不是偷懒 —— 整条曝光管线都建立在"字符即光源"上：
+**But the picture itself stays dark in both modes.** That's not laziness — the entire exposure pipeline is built on "the characters are the light source":
 
 ```
-target = filmic(tone * (0.66 / ink) * 0.85)   # 先算每格该发多少光
-rgb    = px * (target / lum)                  # 再把颜色缩放到那个亮度
+target = filmic(tone * (0.66 / ink) * 0.85)   # work out how much light each cell should emit
+rgb    = px * (target / lum)                  # then scale the color to that brightness
 ```
 
-字符是加色的、自己发光的。翻成纸白就得改成减色的油墨模型，那是另一件作品，不是同一件作品的另一套皮肤。
-所以亮色模式里，画面被当作**一张装裱好的照片**来呈现：暖白页面上一块深色相纸，配细边框和一层很浅的投影。
-画框空着的时候露出卡纸本色，装上作品才变暗。
+The characters are additive — they emit light themselves. Flipping that to white paper would mean switching to a subtractive ink model, which is a different piece, not a reskin of the same one. So in light mode the picture is presented as **a mounted photograph**: a dark print on warm white paper, with a thin frame and a faint drop shadow. An empty frame shows the mount board's own color; it only goes dark once a picture is loaded.
 
-logo 的配色也跟着换：横线用当前模式的墨色，跳变那一竖始终是火光琥珀。
+The logo's palette follows suit: the flat strokes use whatever ink color the current theme defines; the jump is always torch amber.
 
-配色对比度都过了 WCAG AA（正文小字 ≥ 4.5:1），两种模式都验过。
+Contrast was checked against WCAG AA (body text ≥ 4.5:1) in both themes.
 
-## GIF 是怎么编出来的
+## How the GIF encoder works
 
-浏览器不提供 GIF 编码，所以这部分是手写的：**中位切分量化 → LZW → GIF89a 封装**。
+Browsers don't ship a GIF encoder, so this part is hand-written: **median-cut quantization → LZW → GIF89a container**.
 
-麻烦在于数字画对 LZW 极不友好：每一格颜色都不一样，还带抗锯齿，整帧几乎是噪声，
-40 帧直出是 9.1 MB。解法是 GIF 本来就支持的帧间差分——
+The trouble is that a digit mosaic is about the worst possible input for LZW — every cell is a different color, anti-aliased on top of that, so a whole frame is close to noise. Forty frames straight out came to 9.1 MB. The fix is the frame-differencing GIF already supports natively:
 
-- 只写和上一帧不同的像素，其余填透明索引，让下面那帧透上来（处置方式设为「保留」）
-- 每帧再裁到实际发生变化的那块矩形
-- 调色板留一格给透明色，256 色变 255 色
+- write only the pixels that changed from the previous frame; everything else gets the transparent index and lets the frame underneath show through (disposal method set to "keep")
+- crop each frame to the bounding box of what actually changed
+- reserve one palette slot for transparency — 256 colors becomes 255
 
-微光模式一帧只翻几百个格子，差分后大片都是同一个透明索引，正好是 LZW 最擅长的长串。
-同样 40 帧、800×576，**9.1 MB 掉到 1.0 MB**。
+Shimmer mode only flips a few hundred cells per frame, so after differencing most of a frame is the same transparent index repeated — exactly the long run LZW is best at. Same 40 frames, same 800×576: **9.1 MB down to 1.0 MB**.
 
-## 性能
+## Performance
 
-网页版每帧全量重绘 19,000 个字符。逐格切换 `fillStyle` 会卡，所以把颜色量化到 32 级分桶、每种色只切换一次填充色 —— 这部分实测 0.85 ms/帧。
+The web app redraws all 19,000 characters every frame. Switching `fillStyle` per cell would choke, so colors are quantized into 32 buckets and the fill style is switched once per bucket instead of once per character — measured at 0.85ms/frame.
 
-## 调参
+## Tuning knobs
 
-`src/mosaic.py`：
+`src/mosaic.py`:
 
-| 参数 | 作用 |
+| Parameter | Effect |
 |---|---|
-| `cols` | 网格密度。越大越像原图，数字感越弱 |
-| `charset` | `"01"` 二进制 / `"0123456789"` 十进制 / 任意字符 |
-| `mode` | `dark` 黑底发光 / `woven` 原图垫底做织物质感 |
-| `gamma` | 越大黑越死，戏剧性越强 |
-| `eq` | 排序均衡的权重，0 保留原始影调，1 强制铺满灰阶 |
+| `cols` | Grid density. Higher looks more like the source, less like digits |
+| `charset` | `"01"` binary / `"0123456789"` decimal / any character set |
+| `mode` | `dark` glowing on black / `woven` source image showing through as a fabric texture |
+| `gamma` | Higher pushes blacks deeper, more dramatic |
+| `eq` | Weight of rank equalization — 0 keeps the original tonal curve, 1 forces a flat spread across the full range |

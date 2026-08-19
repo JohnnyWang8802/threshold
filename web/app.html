@@ -155,8 +155,11 @@
   }
   .busy.on{display:flex}
 
-  .caption{display:flex;justify-content:flex-end;margin-top:-8px}
-  .caption span{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+  /* 行内容靠左聚成一组之后，右边常常空出一大截 —— 与其让行硬撑满宽度
+     留出一片没人认领的空白，不如给每行第二个锚点：次要信息/操作推到
+     行尾，两头都有内容，中间的空白才读成"留白"而不是"没排完"。 */
+  .row-end{margin-left:auto;flex:none}
+  .row .lbl.row-end{width:auto}
 
   /* ---- 控制面板 ------------------------------------------------------ */
   .panel{
@@ -277,6 +280,7 @@
     .knob{width:100%;flex:none;min-width:0}
     .modes{width:100%}
     .modes button{flex:1;padding:8px 6px}
+    .row-end{margin-left:0;width:100%}   /* 窄屏没有"行尾"这回事，跟其他控件一起往下堆 */
   }
   @media (prefers-reduced-motion:reduce){
     *{transition:none !important}
@@ -332,8 +336,6 @@
     </div>
   </div>
 
-  <div class="caption"><span id="meta" data-i18n="waiting"></span></div>
-
   <div class="panel off" id="panel">
     <div class="row">
       <span class="lbl" data-i18n="secView"></span>
@@ -344,6 +346,7 @@
         <button data-m="decode"   aria-pressed="false" data-i18n="modeDecode"></button>
         <button data-m="scan"     aria-pressed="false" data-i18n="modeScan"></button>
       </div>
+      <span class="lbl row-end" id="meta" data-i18n="waiting"></span>
     </div>
 
     <div class="row">
@@ -376,7 +379,7 @@
         <span class="t" data-i18n="dlGif"></span>
         <span class="s" id="gifHint">—</span>
       </button>
-      <button class="link" id="reset" data-i18n="newImage"></button>
+      <button class="link row-end" id="reset" data-i18n="newImage"></button>
     </div>
   </div>
 

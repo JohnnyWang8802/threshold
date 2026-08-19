@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>threshold · 把图片写成 0 和 1</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2040%2030%22%3E%3Cstyle%3E.r%7Bstroke:%2317150f%7D@media%28prefers-color-scheme:dark%29%7B.r%7Bstroke:%23e8e0d0%7D%7D%3C/style%3E%3Cg%20fill=%22none%22%3E%3Cpath%20class=%22r%22%20d=%22M1.6%2027.8%20H21.2%22%20stroke-width=%224.4%22/%3E%3Cpath%20d=%22M20%2029%20V2.2%22%20stroke=%22%23c98a4b%22%20stroke-width=%223%22/%3E%3Cpath%20class=%22r%22%20d=%22M18.8%202.2%20H38.4%22%20stroke-width=%224.4%22/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  /* ===================================================================
+     配色令牌。亮色是默认，暗色跟随系统；data-theme 是用户的手动覆盖，
+     两个方向都要能压过系统设置，所以三处都写全。
+     画面本身（.stage）在两种模式下都是深色 —— 字符是自发光的，
+     整条曝光管线都建立在"字符即光源"之上，翻成纸白就是另一件作品了。
+     亮色模式里它被当成一张装裱好的照片来呈现。
+     =================================================================== */
+  :root{
+    color-scheme:light;
+    --paper:#f7f5f0;
+    --card:#fffefb;
+    --ink:#17150f;
+    --ink-2:#5d5850;
+    --ink-3:#726b60;
+    --rule:#e4dfd3;
+    --rule-2:#cec7b7;
+    --torch:#9c5f26;
+    --stage:#0b0c10;
+    --stage-edge:#d8d1c1;
+    --shadow:0 1px 2px rgba(40,32,16,.05), 0 10px 30px -14px rgba(40,32,16,.22);
+    --lift:0 1px 2px rgba(40,32,16,.06), 0 4px 12px -6px rgba(40,32,16,.14);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --paper:#08090c;
+      --card:#0c0e13;
+      --ink:#e8e0d0;
+      --ink-2:#8b8f96;
+      --ink-3:#7a818c;
+      --rule:#1c1f26;
+      --rule-2:#2b313b;
+      --torch:#c98a4b;
+      --stage:#05060a;
+      --stage-edge:#1c1f26;
+      --shadow:none;
+      --lift:none;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --paper:#08090c;
+    --card:#0c0e13;
+    --ink:#e8e0d0;
+    --ink-2:#8b8f96;
+    --ink-3:#7a818c;
+    --rule:#1c1f26;
+    --rule-2:#2b313b;
+    --torch:#c98a4b;
+    --stage:#05060a;
+    --stage-edge:#1c1f26;
+    --shadow:none;
+    --lift:none;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:var(--paper)}
+  body{
+    background:var(--paper);color:var(--ink-2);
+    font:400 13px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    min-height:100vh;display:flex;flex-direction:column;
+    align-items:center;padding:34px 22px 56px;
+    -webkit-font-smoothing:antialiased;
+    transition:background .35s ease,color .35s ease;
+  }
+  .wrap{width:100%;max-width:1180px;display:flex;flex-direction:column;gap:18px}
+
+  /* ---- 字标 ---------------------------------------------------------- */
+  .plate{display:flex;align-items:flex-end;justify-content:space-between;
+         gap:24px;flex-wrap:wrap;margin-bottom:6px}
+  .mark{display:flex;flex-direction:column;gap:11px;min-width:0}
+  /* 字标锁定：阶跃 mark + 完整字形，共用一条基线。
+     mark 的高度就是字母的升部高（0.757em），低位压在基线上、高位齐着
+     t/h/l/d 的顶 —— 所以整个组合是一个咬合的几何体，不是并排两样东西。 */
+  .mark h1{
+    display:flex;align-items:baseline;gap:.34em;
+    font:400 44px/0.92 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    letter-spacing:-.02em;color:var(--ink);
+  }
+  .mark h1 svg{
+    height:.757em;width:1.01em;flex:none;overflow:visible;
+    align-self:baseline;
+  }
+  /* 竖线比横线细一半：阶跃的跳变在数学上是瞬时的、宽度为零；
+     顺带让 mark 有了和衬线体一致的粗细对比，两者笔调才统一 */
+  .mark h1 .rise{stroke:var(--torch)}
+  .mark h1 .run{stroke:currentColor}
+  .mark .tag{font-size:11px;letter-spacing:.2em;color:var(--ink-3)}
+  .mark .tag b{font-weight:400}
+  .mark .tag .one{color:var(--torch)}     /* 0 笔画实，落在亮处 */
+  .mark .tag .zero{color:var(--ink-3)}    /* 1 更瘦，落在暗处 */
+
+  /* ---- 语言 / 主题开关 ------------------------------------------------ */
+  .toggles{display:flex;align-items:center;gap:10px;padding-bottom:3px}
+  .seg{display:inline-flex;border:1px solid var(--rule);background:var(--card)}
+  .seg button{
+    font:inherit;font-size:11px;letter-spacing:.08em;
+    background:transparent;color:var(--ink-3);border:0;
+    padding:6px 11px;cursor:pointer;transition:color .2s,background .2s;
+  }
+  .seg button + button{border-left:1px solid var(--rule)}
+  .seg button:hover{color:var(--ink)}
+  .seg button[aria-pressed="true"]{color:var(--paper);background:var(--ink)}
+  .icon-btn{
+    display:grid;place-items:center;width:30px;height:29px;
+    border:1px solid var(--rule);background:var(--card);color:var(--ink-3);
+    cursor:pointer;transition:color .2s,border-color .2s;
+  }
+  .icon-btn:hover{color:var(--torch);border-color:var(--rule-2)}
+  .icon-btn svg{width:14px;height:14px;display:block}
+
+  :where(button,input,[tabindex]):focus-visible{
+    outline:1px solid var(--torch);outline-offset:2px;
+  }
+
+  /* ---- 画面 ---------------------------------------------------------- */
+  .stage{
+    position:relative;background:var(--stage);
+    border:1px solid var(--stage-edge);box-shadow:var(--shadow);
+    min-height:220px;
+    transition:background .35s ease,box-shadow .35s ease,border-color .35s ease;
+  }
+  /* 画框空着的时候露出卡纸本色，装上作品才变暗 */
+  .stage:not(.loaded){
+    background:var(--card);border-style:dashed;border-color:var(--rule-2);box-shadow:none;
+  }
+  /* 画布是 alpha:false 建的，本身就是不透明黑，会盖住卡纸；
+     用 visibility 而不是 display，好让它继续把画框撑开 */
+  .stage:not(.loaded) canvas{visibility:hidden}
+  canvas{display:block;width:100%;height:auto}
+
+  .drop{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:15px;text-align:center;
+    padding:44px 24px;cursor:pointer;border:1px dashed transparent;
+    transition:background .2s,border-color .2s;
+  }
+  .drop:hover,.drop.over{background:rgba(164,101,42,.06);border-color:var(--torch)}
+  .drop .digits{font-size:20px;letter-spacing:.36em;color:var(--rule-2);user-select:none}
+  .drop .big{font:400 17px/1.4 "Iowan Old Style",Palatino,Georgia,serif;color:var(--ink)}
+  .drop .sub{font-size:11.5px;color:var(--ink-3);letter-spacing:.04em;max-width:36em;line-height:1.85}
+  .stage.loaded .drop{display:none}
+
+  .busy{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(5,6,10,.88);font-size:12px;letter-spacing:.1em;color:#e8e0d0;z-index:3;
+  }
+  .busy.on{display:flex}
+
+  .caption{display:flex;justify-content:flex-end;margin-top:-8px}
+  .caption span{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+
+  /* ---- 控制面板 ------------------------------------------------------ */
+  .panel{
+    border:1px solid var(--rule);background:var(--card);box-shadow:var(--lift);
+    transition:box-shadow .35s ease,border-color .35s ease;
+  }
+  .panel.off{opacity:.4;pointer-events:none}
+  .row{display:flex;align-items:center;gap:20px;padding:14px 17px;flex-wrap:wrap}
+  .row + .row{border-top:1px solid var(--rule)}
+  .row > .lbl{
+    font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);flex:none;width:52px;
+  }
+
+  .modes{display:inline-flex;border:1px solid var(--rule-2);flex-wrap:wrap}
+  .modes button{
+    font:inherit;font-size:12px;letter-spacing:.05em;
+    background:transparent;color:var(--ink-2);border:0;
+    padding:8px 15px;cursor:pointer;transition:color .2s,background .2s;
+  }
+  .modes button + button{border-left:1px solid var(--rule-2)}
+  .modes button:hover{color:var(--ink)}
+  .modes button[aria-pressed="true"]{color:var(--paper);background:var(--ink)}
+
+  .knob{display:flex;align-items:center;gap:11px;flex:1;min-width:200px}
+  .knob label{
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);white-space:nowrap;
+  }
+  .knob output{
+    font-size:11px;color:var(--ink-2);min-width:3.4em;text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;flex:1;min-width:80px;
+    height:11px;background:transparent;cursor:pointer;
+  }
+  /* 已走过的一段用强调色填实，剩下的留作细线 */
+  input[type=range]::-webkit-slider-runnable-track{
+    height:1px;
+    background:linear-gradient(90deg,
+      var(--torch) 0 var(--fill,50%), var(--rule-2) var(--fill,50%) 100%);
+  }
+  input[type=range]::-moz-range-track{
+    height:1px;
+    background:linear-gradient(90deg,
+      var(--torch) 0 var(--fill,50%), var(--rule-2) var(--fill,50%) 100%);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:9px;height:9px;border-radius:50%;
+    background:var(--torch);border:0;margin-top:-4px;
+    transition:transform .15s ease;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:9px;height:9px;border-radius:50%;background:var(--torch);border:0;
+  }
+  input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.35)}
+  input[type=range]:disabled{cursor:default}
+  input[type=range]:disabled::-webkit-slider-thumb{background:var(--rule-2)}
+  input[type=range]:disabled::-moz-range-thumb{background:var(--rule-2)}
+
+  .btn{
+    display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;
+    border:1px solid var(--rule-2);background:transparent;
+    padding:9px 15px;cursor:pointer;text-align:left;
+    transition:border-color .2s,background .2s;
+  }
+  .btn .t{font:inherit;font-size:12.5px;color:var(--ink)}
+  .btn .s{font:inherit;font-size:10.5px;color:var(--ink-3);letter-spacing:.04em}
+  .btn:hover:not(:disabled){border-color:var(--torch)}
+  .btn:hover:not(:disabled) .t{color:var(--torch)}
+  .btn:disabled{opacity:.45;cursor:default}
+
+  .link{
+    background:none;border:0;font:inherit;font-size:12px;color:var(--ink-3);
+    cursor:pointer;padding:5px 0;transition:color .2s;white-space:nowrap;
+    border-bottom:1px solid transparent;
+  }
+  .link:hover:not(:disabled){color:var(--torch);border-bottom-color:var(--torch)}
+  .link:disabled{opacity:.45;cursor:default}
+
+  .note{font-size:12px;color:var(--ink-3);line-height:1.85;max-width:76ch}
+  .note b{color:var(--ink-2);font-weight:400}
+
+  @media (max-width:720px){
+    body{padding:24px 16px 44px}
+    .mark h1{font-size:30px}
+    .mark .tag{letter-spacing:.14em}
+    .row{gap:14px;padding:13px 14px}
+    .row > .lbl{width:100%}
+    .knob{width:100%;flex:none;min-width:0}
+    .modes{width:100%}
+    .modes button{flex:1;padding:8px 6px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important}
+  }
+</style>
+<script>
+  /* 在首屏绘制之前把手动选择的主题落上，避免闪一下白 */
+  try{
+    var _t = localStorage.getItem('threshold.theme');
+    if (_t === 'light' || _t === 'dark') document.documentElement.setAttribute('data-theme', _t);
+  }catch(e){}
+</script>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="plate">
+    <div class="mark">
+      <h1>
+        <svg viewBox="0 0 40 30" aria-hidden="true" fill="none" stroke-linecap="butt">
+          <path class="run"  d="M1.6 28.4 H20.8" stroke-width="3.2"/>
+          <path class="rise" d="M20 29.5 V2"     stroke-width="1.6"/>
+          <path class="run"  d="M19.2 1.6 H38.4" stroke-width="3.2"/>
+        </svg>
+        <span>threshold</span>
+      </h1>
+      <p class="tag" data-i18n-html="tagline"></p>
+    </div>
+
+    <div class="toggles">
+      <div class="seg" id="lang" role="group" data-i18n-label="langGroup">
+        <button data-lang="zh" aria-pressed="true">中文</button>
+        <button data-lang="en" aria-pressed="false">EN</button>
+      </div>
+      <button class="icon-btn" id="theme"></button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="c" width="1180" height="560"></canvas>
+    <div class="drop" id="drop" tabindex="0" role="button" data-i18n-label="dropLabel">
+      <div class="digits">0 1 0 0 1 1 0 1</div>
+      <div class="big" data-i18n="dropBig"></div>
+      <div class="sub" data-i18n-html="dropSub"></div>
+    </div>
+    <div class="busy" id="busy"></div>
+  </div>
+
+  <div class="caption"><span id="meta" data-i18n="waiting"></span></div>
+
+  <div class="panel off" id="panel">
+    <div class="row">
+      <span class="lbl" data-i18n="secView"></span>
+      <div class="modes" id="modes">
+        <button data-m="still"    aria-pressed="true"  data-i18n="modeStill"></button>
+        <button data-m="shimmer"  aria-pressed="false" data-i18n="modeShimmer"></button>
+        <button data-m="rain"     aria-pressed="false" data-i18n="modeRain"></button>
+        <button data-m="decode"   aria-pressed="false" data-i18n="modeDecode"></button>
+        <button data-m="scan"     aria-pressed="false" data-i18n="modeScan"></button>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="lbl" data-i18n="secTune"></span>
+      <div class="knob">
+        <label for="cols" data-i18n="knobDensity"></label>
+        <input id="cols" type="range" min="60" max="320" step="4" value="200">
+        <output id="colsOut">200</output>
+      </div>
+      <div class="knob">
+        <label for="gam" data-i18n="knobContrast"></label>
+        <input id="gam" type="range" min="80" max="200" step="5" value="135">
+        <output id="gamOut">1.35</output>
+      </div>
+      <div class="knob">
+        <label for="sp" data-i18n="knobSpeed"></label>
+        <input id="sp" type="range" min="0" max="200" value="72">
+        <output id="spOut">0.72</output>
+      </div>
+      <button class="link" id="toggle" data-i18n="pause"></button>
+    </div>
+
+    <div class="row">
+      <span class="lbl" data-i18n="secExport"></span>
+      <button class="btn" id="png">
+        <span class="t" data-i18n="dlPng"></span>
+        <span class="s" id="pngHint">—</span>
+      </button>
+      <button class="btn" id="gif">
+        <span class="t" data-i18n="dlGif"></span>
+        <span class="s" id="gifHint">—</span>
+      </button>
+      <button class="link" id="reset" data-i18n="newImage"></button>
+    </div>
+  </div>
+
+  <p class="note" data-i18n-html="note"></p>
+
+</div>
+<script id="seed" type="application/json">__GRID__</script>
+<script>
+'use strict';
+
+// =====================================================================
+// 文案。中英各一份，界面上出现的每一个字都从这里取。
+// =====================================================================
+
+const I18N = {
+  zh: {
+    docTitle:    'threshold · 把图片写成 0 和 1',
+    tagline:     '把图片写成 <b class="one">0</b> 和 <b class="zero">1</b>',
+    langGroup:   '界面语言',
+    toLight:     '切换到亮色模式',
+    toDark:      '切换到暗色模式',
+
+    dropLabel:   '选择或拖入一张图片',
+    dropBig:     '把任意一张图片拖进来',
+    dropSub:     '也可以点这里选文件，或者直接 ⌘V 粘贴。<br>图片只在你自己的浏览器里处理，不会上传到任何地方。',
+
+    waiting:     '等待图片',
+    metaFmt:     '{cols} × {rows} · {n} 个字符',
+
+    secView:     '画面',
+    secTune:     '参数',
+    secExport:   '导出',
+
+    modeStill:   '静态',
+    modeShimmer: '微光',
+    modeRain:    '数据雨',
+    modeDecode:  '解码',
+    modeScan:    '扫描',
+
+    knobDensity: '密度',
+    knobContrast:'反差',
+    knobSpeed:   '速度',
+    pause:       '暂停',
+    resume:      '继续',
+
+    dlPng:       '下载 PNG',
+    dlGif:       '下载 GIF',
+    newImage:    '换一张图',
+    pngFmt:      '{w} × {h} px 静帧',
+    gifFmt:      '{w} × {h} px · {n} 帧循环',
+    gifDoneFmt:  '{w} × {h} px · {n} 帧 · {mb} MB',
+    gifFrozen:   '选一个动效才能录',
+    gifFrozenTip:'静态画面没有动效可录，选一个动效再导 GIF',
+    lockedTip:   '拖一张自己的图片进来才能调',
+
+    busyRead:    '读取图片…',
+    busyLevel:   '均衡曝光…',
+    busyWrite:   '写成 0 和 1…',
+    busyStill:   '渲染高清静帧…',
+    busyPalette: '挑选调色板…',
+    busyRecFmt:  '录制 {p}%',
+    busyZipFmt:  '压缩 {p}%',
+    errRead:     '这张图片读不出来：',
+    errGif:      'GIF 生成失败：',
+
+    note:        '每个 0 和 1 对应原图的一小格：<b>亮度决定字符的颜色，也决定它是 0 还是 1</b>——0 的笔画多、更实，落在亮处；1 更瘦，落在暗处。字符一直在翻动，亮度分布却不动，所以画面怎么流淌都还立在那里。<br><b>把指针划过画面试试</b>——它是一片水，字符会顺着涟漪折开，水静下来又回到原样。'
+  },
+
+  en: {
+    docTitle:    'threshold · images rewritten in 0 and 1',
+    tagline:     'images rewritten in <b class="one">0</b> and <b class="zero">1</b>',
+    langGroup:   'Interface language',
+    toLight:     'Switch to light mode',
+    toDark:      'Switch to dark mode',
+
+    dropLabel:   'Choose or drop in an image',
+    dropBig:     'Drop any image here',
+    dropSub:     'Or click to pick a file, or just paste with ⌘V.<br>Everything runs in your own browser — nothing is ever uploaded.',
+
+    waiting:     'Waiting for an image',
+    metaFmt:     '{cols} × {rows} · {n} characters',
+
+    secView:     'View',
+    secTune:     'Tune',
+    secExport:   'Export',
+
+    modeStill:   'Still',
+    modeShimmer: 'Shimmer',
+    modeRain:    'Rain',
+    modeDecode:  'Decode',
+    modeScan:    'Scan',
+
+    knobDensity: 'Density',
+    knobContrast:'Contrast',
+    knobSpeed:   'Speed',
+    pause:       'Pause',
+    resume:      'Resume',
+
+    dlPng:       'Download PNG',
+    dlGif:       'Download GIF',
+    newImage:    'New image',
+    pngFmt:      '{w} × {h} px still',
+    gifFmt:      '{w} × {h} px · {n} frames, looping',
+    gifDoneFmt:  '{w} × {h} px · {n} frames · {mb} MB',
+    gifFrozen:   'Pick a motion mode to record',
+    gifFrozenTip:'A still frame has nothing to record — pick a motion mode first',
+    lockedTip:   'Drop in your own image to adjust this',
+
+    busyRead:    'Reading image…',
+    busyLevel:   'Balancing exposure…',
+    busyWrite:   'Writing 0s and 1s…',
+    busyStill:   'Rendering high-res still…',
+    busyPalette: 'Choosing a palette…',
+    busyRecFmt:  'Recording {p}%',
+    busyZipFmt:  'Compressing {p}%',
+    errRead:     'That image could not be read: ',
+    errGif:      'GIF export failed: ',
+
+    note:        'Every 0 and 1 stands for one small cell of the original: <b>brightness sets the colour of the character, and also decides whether it is a 0 or a 1</b> — 0 carries more ink and lands in the light; 1 is thinner and falls into shadow. The characters keep flipping while the brightness map holds still, which is why the picture stays standing however it flows.<br><b>Run your pointer across the picture</b> — it is a pool: the characters refract around the ripples and settle back once the water stills.'
+  }
+};
+
+let LANG = 'zh';
+
+/* 取一条文案，{name} 会被 vars 里的同名值替换 */
+function t(key, vars){
+  let str = (I18N[LANG] && I18N[LANG][key]) || (I18N.zh[key]) || key;
+  if (vars){
+    for (const k in vars) str = str.split('{' + k + '}').join(vars[k]);
+  }
+  return str;
+}
+
+/* 数字按当前语言的习惯加千分位 */
+function num(n){ return n.toLocaleString(LANG === 'zh' ? 'zh-CN' : 'en-US'); }
+
+
+// =====================================================================
+// 图像 → 0/1 网格
+// 这一段是 src/mosaic.py + src/export_grid.py 的浏览器移植：同样的
+// CLAHE 预处理、百分位拉伸、秩均衡、filmic 曝光补偿和 Floyd–Steinberg
+// 抖动，只是全部跑在 canvas 上，不需要服务器。
+// =====================================================================
+
+const CELL_ASPECT = 1.46;      // 一个字符格的 高/宽
+const INK = 0.306;             // '0'/'1' 在格子里的平均墨量，用于曝光补偿
+const WORK_MAX = 1100;         // CLAHE 的工作分辨率上限，够用且够快
+
+function filmic(x){ return x*(2.51*x+0.03)/(x*(2.43*x+0.59)+0.14); }
+
+/* 限制对比度的自适应直方图均衡：分块做直方图 → 裁掉超出上限的部分并
+   均摊回去 → 累积分布当映射表 → 块与块之间双线性插值，避免出现网格。*/
+function clahe(L, w, h, clipLimit, tiles){
+  const tw = Math.ceil(w/tiles), th = Math.ceil(h/tiles);
+  const maps = [];
+  for (let gy = 0; gy < tiles; gy++){
+    for (let gx = 0; gx < tiles; gx++){
+      const x0 = gx*tw, x1 = Math.min(w, x0+tw);
+      const y0 = gy*th, y1 = Math.min(h, y0+th);
+      const hist = new Int32Array(256);
+      let n = 0;
+      for (let y = y0; y < y1; y++){
+        const row = y*w;
+        for (let x = x0; x < x1; x++){ hist[L[row+x]]++; n++; }
+      }
+      const map = new Uint8Array(256);
+      if (n > 0){
+        const limit = Math.max(1, Math.floor(clipLimit*n/256));
+        let excess = 0;
+        for (let i = 0; i < 256; i++) if (hist[i] > limit){ excess += hist[i]-limit; hist[i] = limit; }
+        const inc = (excess/256)|0;
+        let rem = excess - inc*256;
+        for (let i = 0; i < 256; i++){ hist[i] += inc; if (rem > 0){ hist[i]++; rem--; } }
+        const scale = 255/n;
+        let cum = 0;
+        for (let i = 0; i < 256; i++){ cum += hist[i]; map[i] = Math.min(255, (cum*scale+0.5)|0); }
+      }
+      maps.push(map);
+    }
+  }
+  const out = new Uint8Array(w*h);
+  for (let y = 0; y < h; y++){
+    const fy = y/th - 0.5;
+    let g0 = Math.floor(fy);
+    const wy = fy - g0;
+    const gy0 = Math.max(0, Math.min(tiles-1, g0));
+    const gy1 = Math.max(0, Math.min(tiles-1, g0+1));
+    for (let x = 0; x < w; x++){
+      const fx = x/tw - 0.5;
+      let f0 = Math.floor(fx);
+      const wx = fx - f0;
+      const gx0 = Math.max(0, Math.min(tiles-1, f0));
+      const gx1 = Math.max(0, Math.min(tiles-1, f0+1));
+      const v = L[y*w+x];
+      const a = maps[gy0*tiles+gx0][v], b = maps[gy0*tiles+gx1][v];
+      const c = maps[gy1*tiles+gx0][v], d = maps[gy1*tiles+gx1][v];
+      const top = a + (b-a)*wx, bot = c + (d-c)*wx;
+      out[y*w+x] = (top + (bot-top)*wy + 0.5)|0;
+    }
+  }
+  return out;
+}
+
+/* 把图片画进一张工作画布，并在亮度通道上做 CLAHE。
+   RGB 按亮度变化的比例整体缩放，色相不动。 */
+function prepped(img, clipLimit){
+  const iw = img.width, ih = img.height;
+  const s = Math.min(1, WORK_MAX/Math.max(iw, ih));
+  const w = Math.max(1, Math.round(iw*s)), h = Math.max(1, Math.round(ih*s));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', {willReadFrequently:true});
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const id = ctx.getImageData(0, 0, w, h), px = id.data;
+  const L = new Uint8Array(w*h);
+  for (let i = 0, p = 0; i < L.length; i++, p += 4){
+    L[i] = Math.min(255, (0.2126*px[p] + 0.7152*px[p+1] + 0.0722*px[p+2] + 0.5)|0);
+  }
+  const eq = clahe(L, w, h, clipLimit, 10);
+  for (let i = 0, p = 0; i < L.length; i++, p += 4){
+    const k = eq[i]/Math.max(1, L[i]);
+    px[p]   = Math.min(255, px[p]  *k);
+    px[p+1] = Math.min(255, px[p+1]*k);
+    px[p+2] = Math.min(255, px[p+2]*k);
+  }
+  ctx.putImageData(id, 0, 0);
+  return cv;
+}
+
+/* 2 级 Floyd–Steinberg 抖动：把连续色调劈成非黑即白，
+   误差往右和下扩散——项目名字的那一步就在这里。 */
+function dither2(tone, w, h){
+  const v = Float32Array.from(tone);
+  const out = new Uint8Array(w*h);
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const i = y*w + x;
+      const q = v[i] < 0.5 ? 0 : 1;
+      out[i] = q;
+      const e = v[i] - q;
+      if (x+1 < w)               v[i+1]     += e*7/16;
+      if (y+1 < h){
+        if (x > 0)               v[i+w-1]   += e*3/16;
+                                 v[i+w]     += e*5/16;
+        if (x+1 < w)             v[i+w+1]   += e*1/16;
+      }
+    }
+  }
+  return out;
+}
+
+/* 工作画布 → 网格：每格一个 RGB 颜色 + 一个 0/1 字符 */
+function buildGrid(work, cols, gamma){
+  const rows = Math.max(1, Math.round(cols*(work.height/work.width)/CELL_ASPECT));
+  const cv = document.createElement('canvas');
+  cv.width = cols; cv.height = rows;
+  const ctx = cv.getContext('2d', {willReadFrequently:true});
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(work, 0, 0, cols, rows);
+  const px = ctx.getImageData(0, 0, cols, rows).data;
+
+  const n = cols*rows;
+  const lum = new Float64Array(n);
+  for (let i = 0, p = 0; i < n; i++, p += 4){
+    lum[i] = 0.2126*px[p] + 0.7152*px[p+1] + 0.0722*px[p+2];
+  }
+
+  // 掐掉两头各 0.5% 的极值再拉满，避免个别高光/死黑主导整个映射
+  const sorted = Float64Array.from(lum).sort();
+  const lo = sorted[Math.min(n-1, Math.floor(n*0.005))];
+  const hi = sorted[Math.min(n-1, Math.floor(n*0.995))];
+  const span = Math.max(hi-lo, 1e-6);
+
+  // 秩均衡：按亮度排名重新分配色阶，让暗部的层次也摊得开
+  const idx = Array.from({length:n}, (_, i) => i).sort((a, b) => lum[a]-lum[b]);
+  const rank = new Float64Array(n);
+  for (let k = 0; k < n; k++) rank[idx[k]] = n > 1 ? k/(n-1) : 0;
+
+  const tone = new Float64Array(n);
+  for (let i = 0; i < n; i++){
+    const stretched = Math.min(1, Math.max(0, (lum[i]-lo)/span));
+    tone[i] = Math.pow(0.75*stretched + 0.25*rank[i], gamma);
+  }
+
+  // 字符只占格子 30% 的面积，所以整体要提亮回来；filmic 曲线负责收住高光
+  const R = new Uint8Array(n), G = new Uint8Array(n), B = new Uint8Array(n);
+  for (let i = 0, p = 0; i < n; i++, p += 4){
+    const target = filmic(tone[i]*(0.66/INK)*0.85)*255;
+    const k = target/Math.max(lum[i], 1e-6);
+    let r = px[p]*k, g = px[p+1]*k, b = px[p+2]*k;
+    const m = (r+g+b)/3;
+    r = m + (r-m)*1.5;                       // 饱和度拉一点，弥补压暗后的发灰
+    g = m + (g-m)*1.5;
+    b = m + (b-m)*1.5;
+    R[i] = Math.min(255, Math.max(0, r));
+    G[i] = Math.min(255, Math.max(0, g));
+    B[i] = Math.min(255, Math.max(0, b));
+  }
+
+  return {cols, rows, R, G, B, base:dither2(tone, cols, rows)};
+}
+
+// =====================================================================
+// 渲染与动画
+// =====================================================================
+
+const GLYPH = ['1', '0'];      // base=0 → '1'(瘦、暗)，base=1 → '0'(实、亮)
+const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+
+let G = null;                  // 当前网格
+let CUR = null, LUM = null, ORDER = null, boost = null;
+let colPos = null, colSpd = null, colLen = null;
+let decodeP = 0, scanY = -20;
+let mode = 'still', running = true, rate = 0.72;
+let dirty = true;              // 画面不动时靠它决定要不要重绘
+let last = performance.now();
+
+function adopt(grid){
+  G = grid;
+  const n = grid.cols*grid.rows;
+  CUR = Uint8Array.from(grid.base);
+  LUM = new Float32Array(n);
+  boost = new Float32Array(n);
+  for (let i = 0; i < n; i++){
+    LUM[i] = (0.2126*grid.R[i] + 0.7152*grid.G[i] + 0.0722*grid.B[i])/255;
+  }
+  // 解码模式的出场顺序：亮的格子先落定，人先于房间浮现
+  const idx = Array.from({length:n}, (_, i) => i);
+  const key = new Float32Array(n);
+  for (let i = 0; i < n; i++) key[i] = LUM[i]*0.62 + Math.random()*0.38;
+  idx.sort((a, b) => key[b]-key[a]);
+  ORDER = new Float32Array(n);
+  for (let k = 0; k < n; k++) ORDER[idx[k]] = n > 1 ? k/(n-1) : 0;
+
+  allocRipple(n);
+  colPos = new Float32Array(grid.cols);
+  colSpd = new Float32Array(grid.cols);
+  colLen = new Float32Array(grid.cols);
+  seedRain();
+  resetMode();
+}
+
+function seedRain(){
+  for (let x = 0; x < G.cols; x++){
+    colPos[x] = -Math.random()*G.rows*1.6;
+    colSpd[x] = 7 + Math.random()*16;
+    colLen[x] = 9 + Math.random()*22;
+  }
+}
+
+function resetMode(){
+  CUR.set(G.base);
+  boost.fill(1);
+  if (mode === 'rain') seedRain();
+  decodeP = 0;
+  scanY = -20;
+  dirty = true;
+}
+
+function step(dt){
+  const {cols, rows} = G, n = cols*rows;
+  boost.fill(1);
+
+  if (mode === 'still'){
+    return;                    // 定格在解算完成的状态，和下载的 PNG 一模一样
+  }
+
+  else if (mode === 'shimmer'){
+    const k = (n*0.10*rate)|0;
+    for (let t = 0; t < k; t++){
+      const i = (Math.random()*n)|0;
+      if (Math.random() < 4*LUM[i]*(1-LUM[i])) CUR[i] ^= 1;   // 中间调翻得最勤
+    }
+  }
+
+  else if (mode === 'rain'){
+    for (let x = 0; x < cols; x++){
+      colPos[x] += colSpd[x]*rate*dt;
+      if (colPos[x] - colLen[x] > rows){
+        colPos[x] = -Math.random()*rows*0.5;
+        colSpd[x] = 7 + Math.random()*16;
+        colLen[x] = 9 + Math.random()*22;
+      }
+      const head = colPos[x], len = colLen[x];
+      const y0 = Math.max(0, Math.ceil(head-len)), y1 = Math.min(rows-1, Math.floor(head));
+      for (let y = y0; y <= y1; y++){
+        const d = (head-y)/len, i = y*cols + x;
+        boost[i] = 1 + (1-d)*(1-d)*2.4 + (head-y < 1.2 ? 1.8 : 0);
+        if (Math.random() < 0.30) CUR[i] ^= 1;
+      }
+    }
+  }
+
+  else if (mode === 'decode'){
+    decodeP += 0.16*rate*dt;
+    if (decodeP > 1.55) decodeP = 0;
+    const p = Math.min(decodeP, 1);
+    for (let i = 0; i < n; i++){
+      const o = ORDER[i];
+      if (o < p - 0.05){ CUR[i] = G.base[i]; }
+      else if (o < p + 0.10){
+        boost[i] = 1 + (1 - Math.abs(o-p)/0.10)*1.9;          // 解码锋面是亮的
+        if (Math.random() < 0.5) CUR[i] ^= 1;
+      }
+      else { boost[i] = 0.30; if (Math.random() < 0.10) CUR[i] ^= 1; }
+    }
+  }
+
+  else if (mode === 'scan'){
+    scanY += 26*rate*dt;
+    if (scanY > rows + 22) scanY = -22;
+    const band = 9;
+    const y0 = Math.max(0, (scanY-band)|0), y1 = Math.min(rows-1, (scanY+band)|0);
+    for (let y = y0; y <= y1; y++){
+      const f = 1 - Math.abs(y-scanY)/band;
+      for (let x = 0; x < cols; x++){
+        const i = y*cols + x;
+        boost[i] = 1 + f*f*2.0;
+        if (Math.random() < 0.22*f) CUR[i] ^= 1;
+      }
+    }
+  }
+}
+
+// =====================================================================
+// 文字水面
+// 一张和字符网格同尺寸的高度场，跑经典的二维波动方程：下一帧的高度
+// 由四邻均值和上一帧决定，再乘一个阻尼。指针经过就往水里丢能量，
+// 涟漪自己会扩散、相互干涉、撞到边再弹回来，最后归于平静。
+// 字符按高度场的梯度横向偏移 —— 就像隔着水面看底下的东西被折射错开；
+// 波峰同时提亮，扰动够大的地方 0 和 1 会翻面，水搅浑了的意思。
+// =====================================================================
+
+/* ---- 手感旋钮 --------------------------------------------------------
+   这组数是照手感定的，不是照指标定的。中途按"覆盖面积大、余波长"的
+   思路调过一版，纸面数字更漂亮，但摸上去是一大片又广又慢的涌，不对。
+   紧、脆、局部的水花才对，所以退回这组。                             */
+const DAMP  = 0.958;   // 阻尼，越接近 1 涟漪活得越久
+const WARP  = 1.15;    // 折射位移的强度（单位：格宽）
+const LIFT  = 2.6;     // 波峰提亮
+const CHURN = 0.09;    // 扰动超过这个幅度，字符开始翻面
+const REST  = 0.006;   // 峰值低于这个幅度就当水静了（低于此值肉眼已无差别）
+const DROP_R = 2.6;    // 入水半径。窄冲量 = 紧而脆的水花
+const SUBSTEPS = 2;    // 每帧推进两步，波速才跟得上指针
+
+let hCur = null, hPrev = null, rdx = null, rdy = null;
+let rippleOn = true, rippleAwake = false;
+
+/* 把水面立刻抹平。导出前必须调 —— PNG 是定格静帧，
+   GIF 录制时指针也不在画面上，残留的涟漪会被烤进产物里。 */
+function calmWater(){
+  rippleAwake = false;
+  if (hCur){ hCur.fill(0); hPrev.fill(0); rdx.fill(0); rdy.fill(0); }
+}
+
+function allocRipple(n){
+  hCur = new Float32Array(n); hPrev = new Float32Array(n);
+  rdx  = new Float32Array(n); rdy  = new Float32Array(n);
+  rippleAwake = false;
+}
+
+/* 往水里丢一块能量。amp 由指针速度决定：慢慢划是涟漪，甩过去是水花。 */
+function splash(gx, gy, amp){
+  if (!hCur || !rippleOn) return;
+  const {cols, rows} = G, R = DROP_R;
+  const x0 = Math.max(1, Math.floor(gx-R)), x1 = Math.min(cols-2, Math.ceil(gx+R));
+  const y0 = Math.max(1, Math.floor(gy-R)), y1 = Math.min(rows-2, Math.ceil(gy+R));
+  for (let y = y0; y <= y1; y++){
+    for (let x = x0; x <= x1; x++){
+      const dx = x-gx, dy = y-gy;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d > R) continue;
+      const f = Math.cos(d/R * Math.PI/2);      // 中间最深，边缘平滑收口
+      hCur[y*cols + x] -= amp * f * f;
+    }
+  }
+  rippleAwake = true;
+}
+
+/* 推进一帧水面。返回水里是否还有能量 —— 静态模式靠它决定要不要继续重绘。 */
+function rippleStep(){
+  if (!hCur || !rippleAwake) return false;
+  const {cols, rows} = G;
+  let peak = 0;
+  for (let s = 0; s < SUBSTEPS; s++){
+    peak = 0;
+    for (let y = 1; y < rows-1; y++){
+      const row = y*cols;
+      for (let x = 1; x < cols-1; x++){
+        const i = row + x;
+        let v = (hCur[i-1] + hCur[i+1] + hCur[i-cols] + hCur[i+cols])*0.5 - hPrev[i];
+        v *= DAMP;
+        hPrev[i] = v;
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+      }
+    }
+    const t = hCur; hCur = hPrev; hPrev = t;   // 新的一帧成为当前帧
+  }
+  // 判据必须看峰值而不是总能量：波纹铺开时总能量反而会涨，
+  // 但决定"还看不看得见"的是最高的那个波峰
+  if (peak < REST){
+    hCur.fill(0); hPrev.fill(0); rdx.fill(0); rdy.fill(0);
+    rippleAwake = false;
+    return false;
+  }
+  return true;
+}
+
+/* 把水面翻译成画面上的三件事：折射位移、波峰的光、翻面的字符。
+   要在 step() 之后调用 —— boost 已经被当前模式填好，这里是叠加。 */
+function applyRipple(){
+  if (!rippleAwake) return;
+  const {cols, rows} = G;
+  for (let y = 1; y < rows-1; y++){
+    const row = y*cols;
+    for (let x = 1; x < cols-1; x++){
+      const i = row + x;
+      rdx[i] = (hCur[i-1]    - hCur[i+1])    * WARP;
+      rdy[i] = (hCur[i-cols] - hCur[i+cols]) * WARP;
+      const h = hCur[i], a = h < 0 ? -h : h;
+      if (a > 0.002) boost[i] += a * LIFT;
+      if (a > CHURN && Math.random() < 0.18) CUR[i] ^= 1;
+    }
+  }
+}
+
+/* 颜色分桶：把同色的格子攒在一起画，每帧只切换几百次 fillStyle，
+   而不是两万次。 */
+const QB = 5, NB = 1 << (QB*3), QS = 8 - QB;
+const bucket = new Array(NB), stampArr = new Int32Array(NB), keyList = new Int32Array(NB);
+const colStr = new Array(NB);
+let frameId = 0;
+
+function shade(key){
+  let s = colStr[key];
+  if (s === undefined){
+    const r = ((key >> (QB*2)) & 31) << QS, g = ((key >> QB) & 31) << QS, b = (key & 31) << QS;
+    s = colStr[key] = 'rgb(' + (r|4) + ',' + (g|4) + ',' + (b|4) + ')';
+  }
+  return s;
+}
+
+function renderTo(ctx, cw, ch, bg){
+  const {cols, rows} = G, n = cols*rows;
+  if (bg !== 'keep'){
+    ctx.fillStyle = bg || '#05060a';
+    ctx.fillRect(0, 0, cols*cw, rows*ch);
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold ' + (cw*1.45).toFixed(2) + 'px ' + MONO;
+
+  frameId++;
+  let keyN = 0;
+  for (let i = 0; i < n; i++){
+    const m = boost[i];
+    let r = G.R[i]*m, g = G.G[i]*m, b = G.B[i]*m;
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    const key = (((r|0) >> QS) << (QB*2)) | (((g|0) >> QS) << QB) | ((b|0) >> QS);
+    if (stampArr[key] !== frameId){
+      stampArr[key] = frameId;
+      if (!bucket[key]) bucket[key] = [];
+      bucket[key].length = 0;
+      keyList[keyN++] = key;
+    }
+    bucket[key].push(i);
+  }
+  const warped = rippleAwake && rdx;
+  for (let k = 0; k < keyN; k++){
+    const key = keyList[k], list = bucket[key];
+    ctx.fillStyle = shade(key);
+    for (let j = 0; j < list.length; j++){
+      const i = list[j];
+      const x = (i % cols)*cw + cw/2, y = ((i/cols)|0)*ch + ch/2;
+      if (warped) ctx.fillText(GLYPH[CUR[i]], x + rdx[i]*cw, y + rdy[i]*cw);
+      else        ctx.fillText(GLYPH[CUR[i]], x, y);
+    }
+  }
+}
+
+// =====================================================================
+// GIF 编码器（median-cut 量化 + LZW + GIF89a 封装，无外部依赖）
+// =====================================================================
+
+/* 中位切分：把颜色空间反复从最长的那条边劈成两半，直到攒够 256 个盒子，
+   每个盒子的平均色就是一个调色板条目。 */
+function medianCut(samples, maxColors){
+  const m = samples.length/3;
+  const pts = new Int32Array(m);
+  for (let i = 0; i < m; i++) pts[i] = i;
+
+  function bounds(start, end){
+    let rmin = 255, rmax = 0, gmin = 255, gmax = 0, bmin = 255, bmax = 0;
+    for (let i = start; i < end; i++){
+      const p = pts[i]*3;
+      const r = samples[p], g = samples[p+1], b = samples[p+2];
+      if (r < rmin) rmin = r;
+      if (r > rmax) rmax = r;
+      if (g < gmin) gmin = g;
+      if (g > gmax) gmax = g;
+      if (b < bmin) bmin = b;
+      if (b > bmax) bmax = b;
+    }
+    return {start, end, rmin, rmax, gmin, gmax, bmin, bmax,
+            vol:(rmax-rmin)+(gmax-gmin)+(bmax-bmin)};
+  }
+
+  let boxes = [bounds(0, m)];
+  while (boxes.length < maxColors){
+    let pick = -1, best = 0;
+    for (let i = 0; i < boxes.length; i++){
+      const bx = boxes[i];
+      if (bx.end - bx.start < 2 || bx.vol === 0) continue;
+      const score = bx.vol*Math.cbrt(bx.end - bx.start);
+      if (score > best){ best = score; pick = i; }
+    }
+    if (pick < 0) break;
+
+    const bx = boxes[pick];
+    const dr = bx.rmax-bx.rmin, dg = bx.gmax-bx.gmin, db = bx.bmax-bx.bmin;
+    const ch = dr >= dg && dr >= db ? 0 : (dg >= db ? 1 : 2);
+    const slice = Array.prototype.slice.call(pts.subarray(bx.start, bx.end));
+    slice.sort((a, b) => samples[a*3+ch] - samples[b*3+ch]);
+    pts.set(slice, bx.start);
+    const mid = bx.start + (slice.length >> 1);
+    boxes.splice(pick, 1, bounds(bx.start, mid), bounds(mid, bx.end));
+  }
+
+  const pal = new Uint8Array(boxes.length*3);
+  boxes.forEach((bx, i) => {
+    let r = 0, g = 0, b = 0;
+    const cnt = bx.end - bx.start;
+    for (let k = bx.start; k < bx.end; k++){
+      const p = pts[k]*3;
+      r += samples[p]; g += samples[p+1]; b += samples[p+2];
+    }
+    pal[i*3]   = (r/cnt + 0.5)|0;
+    pal[i*3+1] = (g/cnt + 0.5)|0;
+    pal[i*3+2] = (b/cnt + 0.5)|0;
+  });
+  return pal;
+}
+
+/* 15 位色键 → 调色板下标的惰性查找表，省掉每像素 256 次距离计算 */
+function makeMapper(pal){
+  const nc = pal.length/3;
+  const cache = new Int16Array(32768).fill(-1);
+  return function(r, g, b){
+    const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    let v = cache[key];
+    if (v < 0){
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < nc; i++){
+        const dr = r-pal[i*3], dg = g-pal[i*3+1], db = b-pal[i*3+2];
+        const d = dr*dr*0.299 + dg*dg*0.587 + db*db*0.114;
+        if (d < bd){ bd = d; best = i; }
+      }
+      v = cache[key] = best;
+    }
+    return v;
+  };
+}
+
+/* GIF 的 LZW：变长码 + 满表清空，位序是低位在前 */
+function lzwEncode(indices, minCodeSize){
+  const clear = 1 << minCodeSize, eoi = clear + 1;
+  const mask = clear - 1;
+  let codeSize = minCodeSize + 1, next = eoi + 1;
+  let table = new Map();
+  const out = [];
+  let cur = 0, bits = 0;
+
+  function emit(code){
+    cur |= code << bits;
+    bits += codeSize;
+    while (bits >= 8){ out.push(cur & 255); cur >>>= 8; bits -= 8; }
+  }
+
+  emit(clear);
+  let prefix = indices[0] & mask;
+  for (let i = 1; i < indices.length; i++){
+    const k = indices[i] & mask;
+    const key = (prefix << 8) | k;
+    const hit = table.get(key);
+    if (hit !== undefined){ prefix = hit; continue; }
+    emit(prefix);
+    if (next === 4096){
+      emit(clear);
+      table = new Map();
+      next = eoi + 1;
+      codeSize = minCodeSize + 1;
+    } else {
+      if (next >= (1 << codeSize) && codeSize < 12) codeSize++;
+      table.set(key, next++);
+    }
+    prefix = k;
+  }
+  emit(prefix);
+  emit(eoi);
+  if (bits > 0) out.push(cur & 255);
+  return out;
+}
+
+function subBlocks(bytes, sink){
+  for (let i = 0; i < bytes.length; i += 255){
+    const chunk = bytes.slice(i, i + 255);
+    sink.push(chunk.length);
+    for (let j = 0; j < chunk.length; j++) sink.push(chunk[j]);
+  }
+  sink.push(0);
+}
+
+/* 组装 GIF89a。
+   数字画每格颜色都不一样，LZW 几乎咬不动整帧，所以这里做帧间差分：
+   只有变了的像素才写进去，没变的填透明索引交给上一帧透出来，再把每帧
+   裁到实际变化的那块矩形。微光模式一帧只翻几百个格子，差分之后体积能
+   掉一个数量级。 */
+async function encodeGif(w, h, pal, frames, delayCs, onProgress){
+  const nColors = pal.length/3;
+  const transIdx = nColors;                    // 调色板后面留一格当透明色
+  let bits = 1;
+  while ((1 << bits) < nColors + 1) bits++;
+  bits = Math.max(2, Math.min(8, bits));
+  const gctSize = 1 << bits;
+
+  const b = [];
+  const u16 = v => { b.push(v & 255, (v >> 8) & 255); };
+  for (const c of 'GIF89a') b.push(c.charCodeAt(0));
+  u16(w); u16(h);
+  b.push(0xF0 | (bits-1), 0, 0);
+  for (let i = 0; i < gctSize; i++){
+    b.push(pal[i*3] || 0, pal[i*3+1] || 0, pal[i*3+2] || 0);
+  }
+  b.push(0x21, 0xFF, 0x0B);
+  for (const c of 'NETSCAPE2.0') b.push(c.charCodeAt(0));
+  b.push(0x03, 0x01, 0, 0, 0x00);
+
+  let prev = null;
+  for (let f = 0; f < frames.length; f++){
+    const cur = frames[f];
+    let x0 = 0, y0 = 0, fw = w, fh = h, data = cur, transparent = false;
+
+    if (prev){
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+      for (let y = 0, i = 0; y < h; y++){
+        for (let x = 0; x < w; x++, i++){
+          if (cur[i] !== prev[i]){
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX < 0){                            // 这一帧什么都没变
+        x0 = y0 = 0; fw = fh = 1;
+        data = Uint8Array.of(transIdx);
+      } else {
+        x0 = minX; y0 = minY;
+        fw = maxX - minX + 1;
+        fh = maxY - minY + 1;
+        data = new Uint8Array(fw*fh);
+        for (let y = 0; y < fh; y++){
+          const src = (y0+y)*w + x0, dst = y*fw;
+          for (let x = 0; x < fw; x++){
+            const i = src + x;
+            data[dst+x] = cur[i] === prev[i] ? transIdx : cur[i];
+          }
+        }
+      }
+      transparent = true;
+    }
+
+    b.push(0x21, 0xF9, 0x04, transparent ? 0x05 : 0x04);   // 处置方式=保留，按需开透明
+    u16(delayCs);
+    b.push(transparent ? transIdx : 0, 0x00);
+    b.push(0x2C); u16(x0); u16(y0); u16(fw); u16(fh); b.push(0x00);
+    b.push(bits);
+    subBlocks(lzwEncode(data, bits), b);
+
+    prev = cur;
+    if (onProgress && f % 4 === 0) await onProgress(f/frames.length);
+  }
+  b.push(0x3B);
+  return new Uint8Array(b);
+}
+
+// =====================================================================
+// 应用层：上传 / 控件 / 导出
+// =====================================================================
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), cv = $('c'), busy = $('busy');
+const ctx = cv.getContext('2d', {alpha:false});
+const root = document.documentElement;
+
+function store(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+function recall(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+
+// ---- 主题：默认跟随系统，手动选择后才写进 localStorage 覆盖 -----------
+const ICON_SUN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">' +
+  '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M2.6 12h2.1M19.3 12h2.1' +
+  'M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M18.7 5.3l-1.5 1.5M6.8 17.2l-1.5 1.5"/></svg>';
+const ICON_MOON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 14.6A8.4 8.4 0 0 1 9.4 3.8' +
+  'a8.4 8.4 0 1 0 10.8 10.8z"/></svg>';
+
+const darkMedia = matchMedia('(prefers-color-scheme: dark)');
+
+function activeTheme(){
+  const set = root.getAttribute('data-theme');
+  if (set === 'light' || set === 'dark') return set;
+  return darkMedia.matches ? 'dark' : 'light';
+}
+
+function paintThemeButton(){
+  const dark = activeTheme() === 'dark';
+  const btn = $('theme');
+  btn.innerHTML = dark ? ICON_SUN : ICON_MOON;   // 图标画的是"按下去会变成什么"
+  btn.setAttribute('aria-label', dark ? t('toLight') : t('toDark'));
+  btn.title = dark ? t('toLight') : t('toDark');
+}
+
+$('theme').addEventListener('click', () => {
+  const next = activeTheme() === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  store('threshold.theme', next);
+  paintThemeButton();
+});
+
+// 没有手动覆盖时，系统在日夜之间切换要跟着走
+darkMedia.addEventListener('change', () => {
+  if (!root.hasAttribute('data-theme')) paintThemeButton();
+});
+
+// ---- 语言 ------------------------------------------------------------
+function applyLang(){
+  root.setAttribute('lang', LANG);
+  document.title = t('docTitle');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.dataset.i18nHtml);
+  });
+  document.querySelectorAll('[data-i18n-label]').forEach(el => {
+    el.setAttribute('aria-label', t(el.dataset.i18nLabel));
+  });
+  [...$('lang').children].forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.lang === LANG));
+  });
+
+  // 下面这些是算出来的文案，data-i18n 覆盖不到
+  $('toggle').textContent = t(running ? 'pause' : 'resume');
+  paintThemeButton();
+  if (G) hints(); else $('meta').textContent = t('waiting');
+  syncMotionControls();
+  if ($('cols').disabled) $('cols').title = $('gam').title = t('lockedTip');
+}
+
+$('lang').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn || btn.dataset.lang === LANG) return;
+  LANG = btn.dataset.lang;
+  store('threshold.lang', LANG);
+  applyLang();
+});
+
+/* 滑杆已走过的一段填成实色 */
+function paintRange(el){
+  const min = +el.min, max = +el.max;
+  el.style.setProperty('--fill', ((el.value - min)/(max - min)*100).toFixed(1) + '%');
+}
+
+const CW = 8, CH = 12;         // 屏幕上的字符格
+let work = null;               // CLAHE 之后的工作画布
+let stem = 'threshold';        // 导出文件名
+let cols = 200, gamma = 1.35;
+let exporting = false;
+
+function setBusy(msg){
+  busy.textContent = msg || '';
+  busy.classList.toggle('on', !!msg);
+}
+/* 让浏览器有机会把进度画出来。标签页切到后台时 rAF 会停摆，
+   所以再挂一个超时，免得导出流程卡死在那儿。 */
+const paint = () => new Promise(r => {
+  let done = false;
+  const fin = () => { if (!done){ done = true; r(); } };
+  requestAnimationFrame(() => setTimeout(fin, 0));
+  setTimeout(fin, 150);
+});
+
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2, 3200/(G.cols*CW));
+  cv.width = Math.round(G.cols*CW*dpr);
+  cv.height = Math.round(G.rows*CH*dpr);
+  cv.style.aspectRatio = (G.cols*CW) + ' / ' + (G.rows*CH);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dirty = true;                // 改尺寸会清空画布
+}
+
+function hints(){
+  const n = G.cols*G.rows;
+  $('meta').textContent = t('metaFmt', {cols:G.cols, rows:G.rows, n:num(n)});
+  const pw = pngCell();
+  $('pngHint').textContent = t('pngFmt', {w:G.cols*pw, h:G.rows*Math.round(pw*1.5)});
+  const gw = gifCell();
+  $('gifHint').textContent =
+    t('gifFmt', {w:G.cols*gw, h:G.rows*Math.round(gw*1.5), n:GIF_FRAMES});
+}
+
+const pngCell = () => Math.max(8, Math.min(24, Math.round(3200/G.cols)));
+const gifCell = () => Math.max(4, Math.min(8, Math.floor(900/G.cols)));
+
+function rebuild(){
+  adopt(buildGrid(work, cols, gamma));
+  fit();
+  hints();
+  syncMotionControls();      // hints() 会把 GIF 提示写成尺寸文案，静态模式下要改回来
+  stage.classList.add('loaded');
+  $('cols').disabled = $('gam').disabled = false;   // 换成自己的图之后就能重建了
+  $('cols').title = $('gam').title = '';
+  paintRange($('cols')); paintRange($('gam'));
+  $('panel').classList.remove('off');
+}
+
+async function ingest(file){
+  if (!file || !file.type.startsWith('image/')) return;
+  stem = (file.name || 'threshold').replace(/\.[^.]+$/, '').slice(0, 48) || 'threshold';
+  setBusy(t('busyRead'));
+  await paint();
+  try {
+    const img = await createImageBitmap(file, {imageOrientation:'from-image'});
+    setBusy(t('busyLevel'));
+    await paint();
+    work = prepped(img, 2.2);
+    img.close && img.close();
+    setBusy(t('busyWrite'));
+    await paint();
+    rebuild();
+  } catch (err){
+    console.error(err);
+    alert(t('errRead') + err.message);
+  }
+  setBusy('');
+}
+
+// ---- 拖拽 / 选择 / 粘贴 ------------------------------------------------
+const picker = document.createElement('input');
+picker.type = 'file';
+picker.accept = 'image/*';
+picker.addEventListener('change', () => picker.files[0] && ingest(picker.files[0]));
+
+$('drop').addEventListener('click', () => picker.click());
+$('drop').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); picker.click(); }
+});
+$('reset').addEventListener('click', () => picker.click());
+
+['dragenter', 'dragover'].forEach(t => stage.addEventListener(t, e => {
+  e.preventDefault();
+  $('drop').classList.add('over');
+}));
+['dragleave', 'drop'].forEach(t => stage.addEventListener(t, e => {
+  e.preventDefault();
+  $('drop').classList.remove('over');
+}));
+stage.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f) ingest(f);
+});
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+window.addEventListener('paste', e => {
+  for (const item of e.clipboardData.items){
+    if (item.type.startsWith('image/')){ ingest(item.getAsFile()); break; }
+  }
+});
+
+// ---- 指针：把画面当水面 ------------------------------------------------
+let lastPX = 0, lastPY = 0, hasLastP = false;
+
+function pointerToGrid(e){
+  const r = cv.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return {gx: (e.clientX - r.left)/r.width  * G.cols,
+          gy: (e.clientY - r.top) /r.height * G.rows};
+}
+
+stage.addEventListener('pointermove', e => {
+  if (!G || exporting || !rippleOn) return;
+  const g = pointerToGrid(e);
+  if (!g) return;
+  // 划得越快丢下的能量越多：慢慢抚过是涟漪，甩过去是水花
+  let amp = 0.45;
+  if (hasLastP){
+    const dx = g.gx-lastPX, dy = g.gy-lastPY;
+    amp = Math.min(1.5, 0.16 + Math.sqrt(dx*dx + dy*dy)*0.2);
+  }
+  lastPX = g.gx; lastPY = g.gy; hasLastP = true;
+  splash(g.gx, g.gy, amp);
+});
+
+stage.addEventListener('pointerdown', e => {
+  if (!G || exporting || !rippleOn) return;
+  const g = pointerToGrid(e);
+  if (g) splash(g.gx, g.gy, 2.2);        // 按下去是一颗石子
+});
+
+stage.addEventListener('pointerleave', () => { hasLastP = false; });
+
+// ---- 控件 -------------------------------------------------------------
+$('modes').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  mode = btn.dataset.m;
+  [...e.currentTarget.children].forEach(b => b.setAttribute('aria-pressed', b === btn));
+  if (G) resetMode();
+  syncMotionControls();
+});
+
+/* 静态模式下没有东西在动，速度和暂停就别摆在那儿了 */
+function syncMotionControls(){
+  const frozen = mode === 'still';
+  $('sp').disabled = frozen;
+  $('toggle').disabled = frozen;
+  $('gif').disabled = frozen;
+  $('gif').title = frozen ? t('gifFrozenTip') : '';
+  $('gifHint').textContent = frozen && G ? t('gifFrozen') : $('gifHint').textContent;
+  if (!frozen && G) hints();
+}
+
+let rebuildTimer = 0;
+function deferRebuild(){
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => { if (work) rebuild(); }, 140);
+}
+$('cols').addEventListener('input', e => {
+  cols = +e.target.value;
+  $('colsOut').textContent = cols;
+  paintRange(e.target);
+  deferRebuild();
+});
+$('gam').addEventListener('input', e => {
+  gamma = e.target.value/100;
+  $('gamOut').textContent = gamma.toFixed(2);
+  paintRange(e.target);
+  deferRebuild();
+});
+$('sp').addEventListener('input', e => {
+  rate = e.target.value/100;
+  $('spOut').textContent = rate.toFixed(2);
+  paintRange(e.target);
+});
+
+const tg = $('toggle');
+tg.addEventListener('click', () => {
+  running = !running;
+  tg.textContent = t(running ? 'pause' : 'resume');
+});
+
+// ---- 导出 -------------------------------------------------------------
+function download(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* PNG：定格的高清静帧。字符back到解算完成的状态、亮度不带动画增益，
+   背景铺一层模糊到看不出内容的原图（mosaic.py 里的 woven 模式）。 */
+$('png').addEventListener('click', async () => {
+  if (!G || exporting) return;
+  exporting = true;
+  calmWater();
+  setBusy(t('busyStill'));
+  await paint();
+
+  const cw = pngCell(), ch = Math.round(cw*1.5);
+  const off = document.createElement('canvas');
+  off.width = G.cols*cw;
+  off.height = G.rows*ch;
+  const octx = off.getContext('2d', {alpha:false});
+
+  octx.fillStyle = '#06070a';
+  octx.fillRect(0, 0, off.width, off.height);
+  if (work && typeof octx.filter === 'string'){
+    octx.filter = 'blur(' + (cw*0.55).toFixed(1) + 'px)';
+    octx.drawImage(work, 0, 0, off.width, off.height);
+    octx.filter = 'none';
+    octx.fillStyle = 'rgba(0,0,0,0.25)';        // 背景压到 0.75，让字符仍是主光源
+    octx.fillRect(0, 0, off.width, off.height);
+  }
+
+  const keepCur = Uint8Array.from(CUR), keepBoost = Float32Array.from(boost);
+  CUR.set(G.base);
+  boost.fill(1);
+  renderTo(octx, cw, ch, 'keep');
+  CUR.set(keepCur);
+  boost.set(keepBoost);
+
+  off.toBlob(blob => {
+    download(blob, stem + '-0-1.png');
+    setBusy('');
+    exporting = false;
+  }, 'image/png');
+});
+
+/* GIF：把当前模式跑满一圈录下来，全局调色板 + LZW 自己编。 */
+const GIF_FRAMES = 40, GIF_DELAY_CS = 8;       // 8/100 秒 ≈ 12.5fps
+
+$('gif').addEventListener('click', async () => {
+  if (!G || exporting) return;
+  exporting = true;
+  calmWater();
+
+  const cw = gifCell(), ch = Math.round(cw*1.5);
+  const W = G.cols*cw, H = G.rows*ch;
+  const off = document.createElement('canvas');
+  off.width = W; off.height = H;
+  const octx = off.getContext('2d', {alpha:false, willReadFrequently:true});
+  const dt = GIF_DELAY_CS/100;
+
+  try {
+    // 第一趟：跑一遍动画，抽样出一张 256 色的全局调色板
+    setBusy(t('busyPalette'));
+    await paint();
+    resetMode();
+    const bag = [];
+    for (let f = 0; f < GIF_FRAMES; f++){
+      step(dt);
+      if (f % 13 === 0){
+        renderTo(octx, cw, ch);
+        const d = octx.getImageData(0, 0, W, H).data;
+        for (let p = 0; p < d.length; p += 4*11) bag.push(d[p], d[p+1], d[p+2]);
+      }
+    }
+    const pal = medianCut(Uint8Array.from(bag), 255);   // 留 1 格给透明索引
+    const map = makeMapper(pal);
+
+    // 第二趟：重跑同一段动画，逐帧量化成下标
+    resetMode();
+    const frames = [];
+    for (let f = 0; f < GIF_FRAMES; f++){
+      step(dt);
+      renderTo(octx, cw, ch);
+      const d = octx.getImageData(0, 0, W, H).data;
+      const idx = new Uint8Array(W*H);
+      for (let i = 0, p = 0; i < idx.length; i++, p += 4) idx[i] = map(d[p], d[p+1], d[p+2]);
+      frames.push(idx);
+      if (f % 4 === 0){
+        setBusy(t('busyRecFmt', {p:Math.round((f+1)/GIF_FRAMES*100)}));
+        await paint();
+      }
+    }
+
+    const bytes = await encodeGif(W, H, pal, frames, GIF_DELAY_CS, async pct => {
+      setBusy(t('busyZipFmt', {p:Math.round(pct*100)}));
+      await paint();
+    });
+    download(new Blob([bytes], {type:'image/gif'}), stem + '-0-1.gif');
+    $('gifHint').textContent = t('gifDoneFmt',
+      {w:W, h:H, n:GIF_FRAMES, mb:(bytes.length/1048576).toFixed(1)});
+  } catch (err){
+    console.error(err);
+    alert(t('errGif') + err.message);
+  }
+  resetMode();
+  setBusy('');
+  exporting = false;
+});
+
+// ---- 主循环 -----------------------------------------------------------
+function loop(now){
+  const dt = Math.min((now-last)/1000, 0.05);
+  last = now;
+  if (G && !exporting){
+    const wet = rippleStep();          // 水面还有能量吗
+    if (running && mode !== 'still'){
+      step(dt);
+      applyRipple();
+      renderTo(ctx, CW, CH);
+    } else if (dirty || wet){
+      // 定格的画面平时一帧都不重绘；只有水被搅动时才醒过来，
+      // 每帧从 base 重新起算，水静下去画面就精确回到原样
+      CUR.set(G.base);
+      boost.fill(1);
+      applyRipple();
+      renderTo(ctx, CW, CH);
+      dirty = false;
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+if (matchMedia('(prefers-reduced-motion: reduce)').matches){
+  running = false;
+  rippleOn = false;      // 连水面一起关掉
+}
+
+// 如果这份文件是 make web 生成的，里面会预埋一张图的网格，直接显示出来
+try {
+  const seed = JSON.parse($('seed').textContent);
+  const raw = Uint8Array.from(atob(seed.data), c => c.charCodeAt(0));
+  const n = seed.cols*seed.rows;
+  const g = {cols:seed.cols, rows:seed.rows, R:new Uint8Array(n), G:new Uint8Array(n),
+             B:new Uint8Array(n), base:new Uint8Array(n)};
+  for (let i = 0; i < n; i++){
+    g.R[i] = raw[i*4]; g.G[i] = raw[i*4+1]; g.B[i] = raw[i*4+2]; g.base[i] = raw[i*4+3];
+  }
+  adopt(g);
+  cols = seed.cols;
+  $('cols').value = cols;
+  $('colsOut').textContent = cols;
+  fit();
+  hints();
+  stage.classList.add('loaded');
+  $('panel').classList.remove('off');
+  $('cols').disabled = $('gam').disabled = true;   // 预埋网格没有原图，重建不了
+  $('cols').title = $('gam').title = t('lockedTip');
+} catch (e){ /* 没有预埋数据，等用户丢一张图进来 */ }
+
+// ---- 起手 -------------------------------------------------------------
+// 语言默认看浏览器，用户选过就以选择为准；主题的覆盖在 <head> 里已经落好了
+LANG = recall('threshold.lang') ||
+       ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
+
+['cols', 'gam', 'sp'].forEach(id => paintRange($(id)));
+applyLang();     // 顺带把主题图标、静态模式下的灰态和各处提示都刷一遍
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -7,8 +7,9 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2040%2030%22%3E%3Cstyle%3E.r%7Bstroke:%2317150f%7D@media%28prefers-color-scheme:dark%29%7B.r%7Bstroke:%23e8e0d0%7D%7D%3C/style%3E%3Cg%20fill=%22none%22%3E%3Cpath%20class=%22r%22%20d=%22M1.6%2027.8%20H21.2%22%20stroke-width=%224.4%22/%3E%3Cpath%20d=%22M20%2029%20V2.2%22%20stroke=%22%23c98a4b%22%20stroke-width=%223%22/%3E%3Cpath%20class=%22r%22%20d=%22M18.8%202.2%20H38.4%22%20stroke-width=%224.4%22/%3E%3C/g%3E%3C/svg%3E">
 <style>
   /* ===================================================================
-     配色令牌。亮色是默认，暗色跟随系统；data-theme 是用户的手动覆盖，
-     两个方向都要能压过系统设置，所以三处都写全。
+     配色令牌。跟不跟系统深色模式无关——按本地时钟自动判定白天/夜晚
+     （06:00–18:00 算白天），JS 在首帧绘制前就把 data-theme 落好，
+     所以这里不需要 prefers-color-scheme 兜底，两套变量各写一份就够。
      画面本身（.stage）在两种模式下都是深色 —— 字符是自发光的，
      整条曝光管线都建立在"字符即光源"之上，翻成纸白就是另一件作品了。
      亮色模式里它被当成一张装裱好的照片来呈现。
@@ -27,23 +28,6 @@
     --stage-edge:#d8d1c1;
     --shadow:0 1px 2px rgba(40,32,16,.05), 0 10px 30px -14px rgba(40,32,16,.22);
     --lift:0 1px 2px rgba(40,32,16,.06), 0 4px 12px -6px rgba(40,32,16,.14);
-  }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      color-scheme:dark;
-      --paper:#08090c;
-      --card:#0c0e13;
-      --ink:#e8e0d0;
-      --ink-2:#8b8f96;
-      --ink-3:#7a818c;
-      --rule:#1c1f26;
-      --rule-2:#2b313b;
-      --torch:#c98a4b;
-      --stage:#05060a;
-      --stage-edge:#1c1f26;
-      --shadow:none;
-      --lift:none;
-    }
   }
   :root[data-theme="dark"]{
     color-scheme:dark;
@@ -98,7 +82,7 @@
   .mark .tag .one{color:var(--torch)}     /* 0 笔画实，落在亮处 */
   .mark .tag .zero{color:var(--ink-3)}    /* 1 更瘦，落在暗处 */
 
-  /* ---- 语言 / 主题开关 ------------------------------------------------ */
+  /* ---- 语言开关 -------------------------------------------------------- */
   .toggles{display:flex;align-items:center;gap:10px;padding-bottom:3px}
   .seg{display:inline-flex;border:1px solid var(--rule);background:var(--card)}
   .seg button{
@@ -109,13 +93,6 @@
   .seg button + button{border-left:1px solid var(--rule)}
   .seg button:hover{color:var(--ink)}
   .seg button[aria-pressed="true"]{color:var(--paper);background:var(--ink)}
-  .icon-btn{
-    display:grid;place-items:center;width:30px;height:29px;
-    border:1px solid var(--rule);background:var(--card);color:var(--ink-3);
-    cursor:pointer;transition:color .2s,border-color .2s;
-  }
-  .icon-btn:hover{color:var(--torch);border-color:var(--rule-2)}
-  .icon-btn svg{width:14px;height:14px;display:block}
 
   :where(button,input,[tabindex]):focus-visible{
     outline:1px solid var(--torch);outline-offset:2px;
@@ -287,10 +264,11 @@
   }
 </style>
 <script>
-  /* 在首屏绘制之前把手动选择的主题落上，避免闪一下白 */
+  /* 按本地时钟判定白天/夜晚，赶在首帧绘制前落上 data-theme，避免闪一下白。
+     下面主脚本里的 applyTimeTheme() 用的是同一条规则，两处要保持一致。 */
   try{
-    var _t = localStorage.getItem('threshold.theme');
-    if (_t === 'light' || _t === 'dark') document.documentElement.setAttribute('data-theme', _t);
+    var _h = new Date().getHours();
+    document.documentElement.setAttribute('data-theme', (_h >= 6 && _h < 18) ? 'light' : 'dark');
   }catch(e){}
 </script>
 </head>
@@ -315,7 +293,6 @@
         <button data-lang="zh" aria-pressed="true">中文</button>
         <button data-lang="en" aria-pressed="false">EN</button>
       </div>
-      <button class="icon-btn" id="theme"></button>
     </div>
   </header>
 
@@ -402,8 +379,6 @@ const I18N = {
     docTitle:    'threshold · 把图片写成 0 和 1',
     tagline:     '把图片写成 <b class="one">0</b> 和 <b class="zero">1</b>',
     langGroup:   '界面语言',
-    toLight:     '切换到亮色模式',
-    toDark:      '切换到暗色模式',
 
     dropLabel:   '选择或拖入一张图片',
     dropBig:     '把任意一张图片拖进来',
@@ -457,8 +432,6 @@ const I18N = {
     docTitle:    'threshold · images rewritten in 0 and 1',
     tagline:     'images rewritten in <b class="one">0</b> and <b class="zero">1</b>',
     langGroup:   'Interface language',
-    toLight:     'Switch to light mode',
-    toDark:      'Switch to dark mode',
 
     dropLabel:   'Choose or drop in an image',
     dropBig:     'Drop any image here',
@@ -1193,43 +1166,35 @@ const root = document.documentElement;
 function store(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
 function recall(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 
-// ---- 主题：默认跟随系统，手动选择后才写进 localStorage 覆盖 -----------
-const ICON_SUN =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">' +
-  '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M2.6 12h2.1M19.3 12h2.1' +
-  'M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M18.7 5.3l-1.5 1.5M6.8 17.2l-1.5 1.5"/></svg>';
-const ICON_MOON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
-  'stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 14.6A8.4 8.4 0 0 1 9.4 3.8' +
-  'a8.4 8.4 0 1 0 10.8 10.8z"/></svg>';
-
-const darkMedia = matchMedia('(prefers-color-scheme: dark)');
-
-function activeTheme(){
-  const set = root.getAttribute('data-theme');
-  if (set === 'light' || set === 'dark') return set;
-  return darkMedia.matches ? 'dark' : 'light';
+// ---- 主题：纯按本地时钟判定白天/夜晚，没有手动开关，也不看系统深浅色
+//      偏好。<head> 里的抢跑脚本用同一条规则先落一次避免闪白，这里的
+//      applyTimeTheme() 之后接管，并且定时核对——标签页开一整天，
+//      日夜边界还是要能跨过去。 --------------------------------------
+function isDaytime(){
+  const h = new Date().getHours();
+  return h >= 6 && h < 18;          // 06:00–18:00 算白天，其余算夜晚
 }
 
-function paintThemeButton(){
-  const dark = activeTheme() === 'dark';
-  const btn = $('theme');
-  btn.innerHTML = dark ? ICON_SUN : ICON_MOON;   // 图标画的是"按下去会变成什么"
-  btn.setAttribute('aria-label', dark ? t('toLight') : t('toDark'));
-  btn.title = dark ? t('toLight') : t('toDark');
+function faviconHref(dark){
+  const ink = dark ? '#e8e0d0' : '#17150f';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><g fill="none">' +
+    '<path stroke="' + ink + '" stroke-width="4.4" d="M1.6 27.8 H21.2"/>' +
+    '<path stroke="#c98a4b" stroke-width="3" d="M20 29 V2.2"/>' +
+    '<path stroke="' + ink + '" stroke-width="4.4" d="M18.8 2.2 H38.4"/>' +
+    '</g></svg>';
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
-$('theme').addEventListener('click', () => {
-  const next = activeTheme() === 'dark' ? 'light' : 'dark';
-  root.setAttribute('data-theme', next);
-  store('threshold.theme', next);
-  paintThemeButton();
-});
+function applyTimeTheme(){
+  const dark = !isDaytime();
+  root.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const icon = document.querySelector('link[rel="icon"]');
+  if (icon) icon.href = faviconHref(dark);
+}
 
-// 没有手动覆盖时，系统在日夜之间切换要跟着走
-darkMedia.addEventListener('change', () => {
-  if (!root.hasAttribute('data-theme')) paintThemeButton();
-});
+applyTimeTheme();
+setInterval(applyTimeTheme, 5 * 60 * 1000);           // 每 5 分钟核对一次
+addEventListener('visibilitychange', () => { if (!document.hidden) applyTimeTheme(); });
 
 // ---- 语言 ------------------------------------------------------------
 function applyLang(){
@@ -1250,7 +1215,6 @@ function applyLang(){
 
   // 下面这些是算出来的文案，data-i18n 覆盖不到
   $('toggle').textContent = t(running ? 'pause' : 'resume');
-  paintThemeButton();
   if (G) hints(); else $('meta').textContent = t('waiting');
   syncMotionControls();
   if ($('cols').disabled) $('cols').title = $('gam').title = t('lockedTip');

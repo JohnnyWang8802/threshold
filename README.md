@@ -14,7 +14,7 @@ The name is one word doing two jobs. In image binarization, the step that carves
 
 - **Upload** — drag-and-drop, click to pick a file, or paste with ⌘V
 - **Bilingual** — every string on the page comes from one dictionary; defaults to your browser's language
-- **Light / dark themes** — follows the system by default, remembers a manual switch
+- **Light / dark by the clock** — 06:00–18:00 is light, the rest is dark; no toggle, no system preference
 - **Live tuning** — density (60–320 columns) and contrast rebuild in real time
 - **Five views** — still (default) / shimmer / rain / decode / scan, speed adjustable
 - **The picture is a pool of water** — run your pointer across it and ripples spread, characters refract around them, and the water settles back to the original once it stills

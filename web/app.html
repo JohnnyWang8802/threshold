@@ -1579,7 +1579,10 @@ if (matchMedia('(prefers-reduced-motion: reduce)').matches){
   rippleOn = false;      // 连水面一起关掉
 }
 
-// 如果这份文件是 make web 生成的，里面会预埋一张图的网格，直接显示出来
+// 如果这份文件是 make web 生成的，里面会预埋一张图的网格，直接显示出来。
+// 顺带也预埋了一份瘦身版原图（out/export_grid.py 里生成），网格先同步
+// 铺上让画面立刻可见，原图解码是异步的，跑完之后密度/反差这两个滑杆
+// 才解锁 —— 访客一打开链接看到的第一张图不该有两个控件是灰的。
 try {
   const seed = JSON.parse($('seed').textContent);
   const raw = Uint8Array.from(atob(seed.data), c => c.charCodeAt(0));
@@ -1597,9 +1600,24 @@ try {
   hints();
   stage.classList.add('loaded');
   $('panel').classList.remove('off');
-  $('cols').disabled = $('gam').disabled = true;   // 预埋网格没有原图，重建不了
-  $('cols').title = $('gam').title = t('lockedTip');
   showRippleHint();
+
+  if (seed.src){
+    const img = new Image();
+    img.src = seed.src;
+    img.decode().then(() => {
+      work = prepped(img, 2.2);
+      $('cols').disabled = $('gam').disabled = false;
+      $('cols').title = $('gam').title = '';
+      paintRange($('cols')); paintRange($('gam'));
+    }).catch(() => {
+      $('cols').disabled = $('gam').disabled = true;
+      $('cols').title = $('gam').title = t('lockedTip');
+    });
+  } else {
+    $('cols').disabled = $('gam').disabled = true;   // 老版本预埋数据没有这份原图
+    $('cols').title = $('gam').title = t('lockedTip');
+  }
 } catch (e){ /* 没有预埋数据，等用户丢一张图进来 */ }
 
 // ---- 起手 -------------------------------------------------------------

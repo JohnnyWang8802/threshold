@@ -31,7 +31,7 @@ make web                  # builds out/live.html with input/source.png baked in
 make grid                 # export just the tone grid
 ```
 
-`make web` produces `out/live.html` — the same app as above, plus a baked-in default image. Open it and Odysseus is already there, fully interactive: density and contrast work on the demo photo exactly as they would on your own, because the source image is embedded too (downscaled to `SEED_MAX=1100`, encoded as JPEG). Earlier builds only embedded the pre-computed grid — no source pixels — so those two sliders were permanently grayed out on first load, which is a rough first impression for anyone trying the live demo. Now `export_grid.py` embeds a lightweight copy of the untouched source, and the app runs it through the exact same `prepped()` path a real upload takes.
+`make web` produces `out/live.html` — the same app as above, plus a baked-in default image. Open it and Odysseus is already there; you can still drop another image in.
 
 ## Pipeline
 

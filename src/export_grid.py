@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Extract the tone/character grid the web + video renderers animate."""
-import argparse, base64, io, json, numpy as np
+import argparse, base64, json, numpy as np
 from PIL import Image
 import mosaic as D
-
-SEED_MAX = 1100   # 嵌入网页的演示图边长上限，和 web/app.html 里 WORK_MAX 对齐
 
 COLS = 200
 CELL_ASPECT = 1.46          # height / width of one character cell
@@ -36,20 +34,7 @@ rgb = np.clip(m + (rgb - m) * 1.5, 0, 255).astype(np.uint8)
 ch = D.dither(tone, 2).astype(np.uint8)       # 0 -> '1'(light), 1 -> '0'(dark)
 
 buf = np.dstack([rgb, ch[..., None]]).astype(np.uint8).tobytes()
-
-# 顺带塞一份瘦身版原图（未经 CLAHE 的那张 img，不是 boosted）。
-# 网页版加载演示图时会拿它重新跑一遍自己的 prepped()，跟真实上传
-# 走同一条代码路径——这样密度/反差这两个滑杆在演示图上也能用，
-# 不用另开一条只服务预埋场景的算法分支。
-seed_img = img.copy()
-seed_img.thumbnail((SEED_MAX, SEED_MAX), Image.LANCZOS)
-seed_buf = io.BytesIO()
-seed_img.save(seed_buf, "JPEG", quality=84)
-seed_src = "data:image/jpeg;base64," + base64.b64encode(seed_buf.getvalue()).decode()
-
 payload = {"cols": COLS, "rows": rows,
-           "data": base64.b64encode(buf).decode(),
-           "src": seed_src}
+           "data": base64.b64encode(buf).decode()}
 json.dump(payload, open(a.out, "w"))
-print(f"grid {COLS}x{rows}  cells={COLS*rows}  base64={len(payload['data'])//1024}KB"
-      f"  seed={seed_img.size[0]}x{seed_img.size[1]}  {len(seed_src)//1024}KB")
+print(f"grid {COLS}x{rows}  cells={COLS*rows}  base64={len(payload['data'])//1024}KB")

@@ -238,8 +238,31 @@
   .link:hover:not(:disabled){color:var(--torch);border-bottom-color:var(--torch)}
   .link:disabled{opacity:.45;cursor:default}
 
-  .note{font-size:12px;color:var(--ink-3);line-height:1.85;max-width:76ch}
+  /* 说明文字：接进面板同一套视觉语言（发丝线 + 大写小标签），
+     而不是页面最下面孤零零一段字 —— 之前那样才是"粗糙"的根源 */
+  .colophon{
+    display:flex;gap:20px;padding-top:16px;border-top:1px solid var(--rule);
+  }
+  .colophon .lbl{flex:none;width:52px;padding-top:1px}
+  .note{font-size:12px;color:var(--ink-3);line-height:1.85;max-width:62ch}
   .note b{color:var(--ink-2);font-weight:400}
+
+  /* 涟漪的发现提示：浮在画布角落，划一下就淡出，此后不再出现。
+     这是功能提示，不是阅读材料，所以不该和上面那段说明文字混在一起。 */
+  .ripple-hint{
+    position:absolute;right:14px;bottom:14px;z-index:2;
+    display:flex;align-items:center;gap:7px;
+    padding:7px 12px 7px 10px;
+    background:var(--card);border:1px solid var(--rule-2);
+    font-size:10.5px;letter-spacing:.08em;color:var(--ink-2);
+    opacity:0;transform:translateY(4px);
+    transition:opacity .5s ease .3s,transform .5s ease .3s;
+    pointer-events:none;
+  }
+  .ripple-hint.on{opacity:1;transform:translateY(0)}
+  .ripple-hint.dismissed{opacity:0;transition:opacity .5s ease}
+  .ripple-hint svg{width:12px;height:12px;flex:none;color:var(--torch)}
+  @media (max-width:640px){ .ripple-hint{display:none} }   /* 触屏没有"指针划过"这回事 */
 
   @media (max-width:720px){
     body{padding:24px 16px 44px}
@@ -296,6 +319,13 @@
       <div class="sub" data-i18n-html="dropSub"></div>
     </div>
     <div class="busy" id="busy"></div>
+    <div class="ripple-hint" id="rippleHint" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <path d="M12 3v11M12 14l-3.5-3.5M12 14l3.5-3.5"/>
+        <path d="M5 17c1.2 1.3 2.6 2 3.7 2s2-.7 3.3-2c1.2-1.3 2.6-2 3.7-2s2.5.7 3.7 2" opacity=".55"/>
+      </svg>
+      <span data-i18n="rippleHint"></span>
+    </div>
   </div>
 
   <div class="caption"><span id="meta" data-i18n="waiting"></span></div>
@@ -346,7 +376,10 @@
     </div>
   </div>
 
-  <p class="note" data-i18n-html="note"></p>
+  <div class="colophon">
+    <span class="lbl" data-i18n="secAbout"></span>
+    <p class="note" data-i18n-html="note"></p>
+  </div>
 
 </div>
 <script id="seed" type="application/json">__GRID__</script>
@@ -375,6 +408,7 @@ const I18N = {
     secView:     '画面',
     secTune:     '参数',
     secExport:   '导出',
+    secAbout:    '说明',
 
     modeStill:   '静态',
     modeShimmer: '微光',
@@ -408,7 +442,8 @@ const I18N = {
     errRead:     '这张图片读不出来：',
     errGif:      'GIF 生成失败：',
 
-    note:        '每个 0 和 1 对应原图的一小格：<b>亮度决定字符的颜色，也决定它是 0 还是 1</b>——0 的笔画多、更实，落在亮处；1 更瘦，落在暗处。字符一直在翻动，亮度分布却不动，所以画面怎么流淌都还立在那里。<br><b>把指针划过画面试试</b>——它是一片水，字符会顺着涟漪折开，水静下来又回到原样。'
+    note:        '每个 0 和 1 对应原图的一小格：<b>亮度决定字符的颜色，也决定它是 0 还是 1</b>——0 的笔画多、更实，落在亮处；1 更瘦，落在暗处。字符一直在翻动，亮度分布却不动，所以画面怎么流淌都还立在那里。',
+    rippleHint:  '划过画面 · 这是一片水',
   },
 
   en: {
@@ -428,6 +463,7 @@ const I18N = {
     secView:     'View',
     secTune:     'Tune',
     secExport:   'Export',
+    secAbout:    'About',
 
     modeStill:   'Still',
     modeShimmer: 'Shimmer',
@@ -461,7 +497,8 @@ const I18N = {
     errRead:     'That image could not be read: ',
     errGif:      'GIF export failed: ',
 
-    note:        'Every 0 and 1 stands for one small cell of the original: <b>brightness sets the colour of the character, and also decides whether it is a 0 or a 1</b> — 0 carries more ink and lands in the light; 1 is thinner and falls into shadow. The characters keep flipping while the brightness map holds still, which is why the picture stays standing however it flows.<br><b>Run your pointer across the picture</b> — it is a pool: the characters refract around the ripples and settle back once the water stills.'
+    note:        'Every 0 and 1 stands for one small cell of the original: <b>brightness sets the colour of the character, and also decides whether it is a 0 or a 1</b> — 0 carries more ink and lands in the light; 1 is thinner and falls into shadow. The characters keep flipping while the brightness map holds still, which is why the picture stays standing however it flows.',
+    rippleHint:  'Move your pointer here · it is a pool',
   }
 };
 
@@ -1267,6 +1304,20 @@ function hints(){
 const pngCell = () => Math.max(8, Math.min(24, Math.round(3200/G.cols)));
 const gifCell = () => Math.max(4, Math.min(8, Math.floor(900/G.cols)));
 
+/* 涟漪的发现提示：第一次装上作品才出现，摸过一次水就永久不再出现
+   （不是每换一张图都提示——用户已经知道这个画面能摸了） */
+function showRippleHint(){
+  if (!rippleOn || recall('threshold.rippleSeen')) return;
+  $('rippleHint').classList.add('on');
+}
+function dismissRippleHint(){
+  const el = $('rippleHint');
+  if (!el.classList.contains('on')) return;
+  el.classList.remove('on');
+  el.classList.add('dismissed');
+  store('threshold.rippleSeen', '1');
+}
+
 function rebuild(){
   adopt(buildGrid(work, cols, gamma));
   fit();
@@ -1277,6 +1328,7 @@ function rebuild(){
   $('cols').title = $('gam').title = '';
   paintRange($('cols')); paintRange($('gam'));
   $('panel').classList.remove('off');
+  showRippleHint();
 }
 
 async function ingest(file){
@@ -1354,12 +1406,13 @@ stage.addEventListener('pointermove', e => {
   }
   lastPX = g.gx; lastPY = g.gy; hasLastP = true;
   splash(g.gx, g.gy, amp);
+  dismissRippleHint();
 });
 
 stage.addEventListener('pointerdown', e => {
   if (!G || exporting || !rippleOn) return;
   const g = pointerToGrid(e);
-  if (g) splash(g.gx, g.gy, 2.2);        // 按下去是一颗石子
+  if (g){ splash(g.gx, g.gy, 2.2); dismissRippleHint(); }   // 按下去是一颗石子
 });
 
 stage.addEventListener('pointerleave', () => { hasLastP = false; });
@@ -1575,6 +1628,7 @@ try {
   $('panel').classList.remove('off');
   $('cols').disabled = $('gam').disabled = true;   // 预埋网格没有原图，重建不了
   $('cols').title = $('gam').title = t('lockedTip');
+  showRippleHint();
 } catch (e){ /* 没有预埋数据，等用户丢一张图进来 */ }
 
 // ---- 起手 -------------------------------------------------------------

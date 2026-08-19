@@ -29,7 +29,15 @@ The original Python pipeline's CLAHE, percentile stretch, rank equalization, fil
 pip install -r requirements.txt
 make web                  # builds out/live.html with input/source.png baked in
 make grid                 # export just the tone grid
+make still                # 5440×3795 PNG via src/mosaic.py
+make video                # 24s MP4 (needs ffmpeg on PATH)
+make                      # all four, same as `make all`
 ```
+
+`still` and `video` need a bold monospace font on the machine; `src/mosaic.py`'s
+`find_font()` checks a short list of common paths (DejaVu on Linux, Menlo on macOS,
+Consolas on Windows) and fails with a clear message if none are found — add yours
+to the list rather than hardcoding a path that only exists on one OS.
 
 `make web` produces `out/live.html` — the same app as above, plus a baked-in default image. Open it and Odysseus is already there, fully interactive: density and contrast work on the demo photo exactly as they would on your own, because the source image is embedded too (downscaled to `SEED_MAX=1100`, encoded as JPEG). Earlier builds only embedded the pre-computed grid — no source pixels — so those two sliders were permanently grayed out on first load, which is a rough first impression for anyone trying the live demo. Now `export_grid.py` embeds a lightweight copy of the untouched source, and the app runs it through the exact same `prepped()` path a real upload takes.
 

@@ -4,7 +4,7 @@ import argparse, pathlib
 
 p = argparse.ArgumentParser()
 p.add_argument("--grid", default="out/grid.json")
-p.add_argument("--tpl",  default="web/template.html")
+p.add_argument("--tpl",  default="web/app.html")
 p.add_argument("--out",  default="out/live.html")
 a = p.parse_args()
 

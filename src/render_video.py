@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Render the four animation modes to an MP4, headlessly."""
-import base64, json, subprocess, numpy as np
+import argparse, base64, json, subprocess, numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from mosaic import find_font          # 同一份跨平台字体查找，别再抄一遍
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+FONT_PATH, FONT_INDEX = find_font()
 CW, CH, FPS = 8, 12, 30
 SECONDS_PER_MODE = 6
-OUT = "out/threshold.mp4"
 
-g = json.load(open("grid.json"))
+p = argparse.ArgumentParser()
+p.add_argument("--grid", default="out/grid.json")
+p.add_argument("--out", default="out/threshold.mp4")
+a = p.parse_args()
+OUT = a.out
+
+g = json.load(open(a.grid))
 COLS, ROWS = g["cols"], g["rows"]
 raw = np.frombuffer(base64.b64decode(g["data"]), np.uint8).reshape(ROWS, COLS, 4)
 RGB = np.clip(raw[..., :3].astype(np.float32) * 1.42, 0, 255)
@@ -16,7 +22,7 @@ BASE = raw[..., 3].copy()
 LUM = (RGB @ np.array([.2126, .7152, .0722], np.float32)) / 255.0
 
 # ---- glyph masks: index 0 -> '1', index 1 -> '0' ---------------------
-font = ImageFont.truetype(FONT, int(CW * 1.6))
+font = ImageFont.truetype(FONT_PATH, int(CW * 1.6), index=FONT_INDEX)
 masks = []
 for ch in ("1", "0"):
     tile = Image.new("L", (CW, CH), 0)

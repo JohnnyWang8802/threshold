@@ -33,7 +33,15 @@ Floyd–Steinberg 抖动，在 `web/app.html` 里都有一份等价的 JS 实现
 pip install -r requirements.txt
 make web                  # 生成预埋了 input/source.png 的 out/live.html
 make grid                 # 只导网格
+make still                # 5440×3795 PNG，走 src/mosaic.py
+make video                # 24 秒 MP4（需要 ffmpeg 在 PATH 里）
+make                      # 四个全出，等价于 make all
 ```
+
+`still` 和 `video` 需要机器上有一款粗体等宽字体；`src/mosaic.py` 里的
+`find_font()` 会按顺序试几条常见路径（Linux 上的 DejaVu、macOS 上的 Menlo、
+Windows 上的 Consolas），找不到就报清楚的错——该在这个列表里加一条你自己
+机器上的路径，而不是硬编码一条只在某个系统上存在的路径。
 
 `make web` 产出的 `out/live.html` 就是上面那个应用，外加一张烘死的默认图 ——
 打开即见奥德修斯，而且是完全能调的：密度和反差在这张演示图上跟自己上传的图一样好使，

@@ -1,15 +1,34 @@
 #!/usr/bin/env python3
 """Colored digit mosaic v3 — ink-coverage exposure compensation."""
-import cv2, numpy as np
+import argparse, cv2, numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-SRC = ("/mnt/user-data/uploads/Johnnywang_The_great_hall_doors_barred_suitors"
-       "_turning_in_daw_52469dd8-77bf-4269-8d2d-0db611a40ea4_3.png")
+# 找一款各平台都有的粗体等宽字体，而不是硬编码某一条 Linux 路径。
+# 元组是 (文件路径, 字体索引) —— macOS 的 Menlo.ttc 是个多面字体集合，
+# Bold 面在索引 1，PIL 需要显式指定，不然拿到的是 Regular。
+_FONT_CANDIDATES = [
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 0),   # Linux
+    ("/System/Library/Fonts/Menlo.ttc", 1),                             # macOS
+    ("/System/Library/Fonts/Supplemental/Courier New Bold.ttf", 0),     # macOS 备选
+    ("C:\\Windows\\Fonts\\consolab.ttf", 0),                            # Windows
+]
+
+def find_font():
+    for path, index in _FONT_CANDIDATES:
+        try:
+            ImageFont.truetype(path, 10, index=index)
+            return path, index
+        except OSError:
+            continue
+    raise SystemExit(
+        "找不到粗体等宽字体，在 _FONT_CANDIDATES 里加一条你系统上的路径。"
+    )
+
+FONT_PATH, FONT_INDEX = find_font()
 
 def ramp_and_coverage(charset, cw, chh, fsize):
     """Order glyphs by ink coverage; also return mean coverage in the cell."""
-    f = ImageFont.truetype(FONT, fsize); cov = {}
+    f = ImageFont.truetype(FONT_PATH, fsize, index=FONT_INDEX); cov = {}
     for c in charset:
         im = Image.new("L", (cw, chh), 0)
         ImageDraw.Draw(im).text((cw//2, chh//2), c, 255, f, anchor="mm")
@@ -39,15 +58,15 @@ def filmic(x):
     """Soft shoulder so the exposure boost doesn't clip highlights flat."""
     return x*(2.51*x+.03)/(x*(2.43*x+.59)+.14)
 
-def render(out, cols=340, cell=16, charset="0123456789", mode="woven",
+def render(src, out, cols=340, cell=16, charset="0123456789", mode="woven",
            sat=1.5, gamma=0.85, eq=0.55, clip=2.2):
-    img = Image.open(SRC).convert("RGB"); W, H = img.size
+    img = Image.open(src).convert("RGB"); W, H = img.size
     boosted = Image.fromarray(prep(img, clip))
 
     cw, chh = cell, int(cell*1.46)
     fsize = int(cell*1.58)
     ramp, ink = ramp_and_coverage(charset, cw, chh, fsize)
-    font = ImageFont.truetype(FONT, fsize)
+    font = ImageFont.truetype(FONT_PATH, fsize, index=FONT_INDEX)
     rows = max(1, int(round(cols*(H/W)*(cw/chh))))
 
     px = np.asarray(boosted.resize((cols, rows), Image.LANCZOS), np.float64)
@@ -85,5 +104,11 @@ def render(out, cols=340, cell=16, charset="0123456789", mode="woven",
     print(f"{out} {OW}x{OH} grid {cols}x{rows} ink={ink:.3f} ramp '{ramp}'")
 
 if __name__ == "__main__":
-    render("/mnt/user-data/outputs/archer_digits_woven.png", mode="woven")
-    render("/mnt/user-data/outputs/archer_digits_dark.png",  mode="dark")
+    p = argparse.ArgumentParser()
+    p.add_argument("--src", default="input/source.png")
+    p.add_argument("--out", default="out/still.png")
+    p.add_argument("--cols", type=int, default=340)
+    p.add_argument("--mode", choices=["woven", "dark"], default="woven")
+    p.add_argument("--charset", default="0123456789")
+    a = p.parse_args()
+    render(a.src, a.out, cols=a.cols, mode=a.mode, charset=a.charset)

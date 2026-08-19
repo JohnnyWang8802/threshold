@@ -2,7 +2,8 @@
 
 把任意一张图重写成由 `0` 和 `1` 组成的画面 —— 拖进浏览器就出结果，能存成 PNG 静帧和 GIF 动图。
 
-**[在线试玩 → threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app)**
+**在线试玩：** [threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app) ·
+[threshold-2ng.pages.dev](https://threshold-2ng.pages.dev)
 
 *[English →](README.md)*
 

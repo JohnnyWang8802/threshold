@@ -2,7 +2,8 @@
 
 Rewrite any image as a picture made of `0`s and `1`s — drop it in a browser tab and it's done, exportable as a crisp PNG or a looping GIF.
 
-**[Try it live → threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app)**
+**Try it live:** [threshold-rho-seven.vercel.app](https://threshold-rho-seven.vercel.app) ·
+[threshold-2ng.pages.dev](https://threshold-2ng.pages.dev)
 
 *[中文说明 →](README.zh.md)*
 

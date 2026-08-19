@@ -239,12 +239,16 @@
   .link:disabled{opacity:.45;cursor:default}
 
   /* 说明文字：接进面板同一套视觉语言（发丝线 + 大写小标签），
-     而不是页面最下面孤零零一段字 —— 之前那样才是"粗糙"的根源 */
+     而不是页面最下面孤零零一段字。
+     宽度收拢到跟文字内容一致，而不是撑满 1180px —— 分割线和正文共享
+     同一条右边界，"靠左偏小"才读成刻意的收尾，不是没排完。
+     书籍里的题记本来就是角落一小块安静的字，不是满宽区块。 */
   .colophon{
-    display:flex;gap:20px;padding-top:16px;border-top:1px solid var(--rule);
+    display:flex;gap:20px;max-width:600px;
+    padding-top:18px;border-top:1px solid var(--rule);
   }
   .colophon .lbl{flex:none;width:52px;padding-top:1px}
-  .note{font-size:12px;color:var(--ink-3);line-height:1.85;max-width:62ch}
+  .note{font-size:12px;color:var(--ink-3);line-height:1.85}
   .note b{color:var(--ink-2);font-weight:400}
 
   /* 涟漪的发现提示：浮在画布角落，划一下就淡出，此后不再出现。
